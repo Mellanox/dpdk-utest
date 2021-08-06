@@ -1,7 +1,11 @@
 #! /usr/bin/env python3
 
-from core.rcmd import RCmd
+from rcmd import *
+from re import sub
 
+class TestPMDCmdError(RCmdError):
+    def __init__(self, cmd):
+        self.cmd = cmd
 
 class TestPMD(RCmd):
     def __init__(self, config:dict):
@@ -10,4 +14,5 @@ class TestPMD(RCmd):
 
     def flow_create(self, rules):
         for r in rules:
-            self.execute([[r, '^Flow rule #[0-9]+ created']])
+            self.execute([[sub(r'  {1,}', ' ', r),
+                           '^Flow rule #[0-9]+ created']])
