@@ -2,8 +2,8 @@
 
 import logging, re
 from time import sleep
+from testpmd import TestPMD
 from scapy.all import *
-from core.testpmd import TestPMD
 
 
 class UnitTestError(Exception):
@@ -19,8 +19,7 @@ class UnitTestMatchError(UnitTestError):
 
 
 class UnitTestNoCaptureError(UnitTestError):
-    def __init__(self, test_id, pkt, count):
-        self.count = count
+    def __init__(self, test_id, pkt):
         UnitTestError.__init__(self, test_id, pkt)
 
 
@@ -39,13 +38,13 @@ class UTest:
         self.ifin = config['ifin'] if 'ifin' in config.keys() else None
         self.ifout = config['ifout'] if 'ifout' in config.keys() else self.ifin
 
-    def lfilter(self):
+    def lfilter(self, pkt=None):
         return True
 
-    def validate(self, sniffed):
+    def validate(self, sniffed=None):
         return self.PROBE_OK
 
-    def send_recv(self, pkt, tmout=0.1, count=1):
+    def send_recv(self, pkt, tmout):
         s = AsyncSniffer(lfilter=self.lfilter, iface=self.ifout)
         s.start()
         sendp(pkt, iface=self.ifin, count=1, verbose=False)
@@ -57,8 +56,7 @@ class UTest:
         if res == self.PROBE_NO_MATCH:
             raise UnitTestMatchError(self.id, pkt)
         elif res == self.PROBE_NO_CAPTURE:
-            count += 1
-            raise UnitTestNoCaptureError(self.id, pkt, count)
+            raise UnitTestNoCaptureError(self.id, pkt)
 
     def send(self, pkt, match=None):
         logging.info('TG > ' + repr(pkt))
