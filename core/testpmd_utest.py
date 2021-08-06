@@ -45,14 +45,14 @@ class UTest:
         return self.PROBE_OK
 
     def send_recv(self, pkt, tmout):
-        s = AsyncSniffer(lfilter=self.lfilter, iface=self.ifout)
+        s = AsyncSniffer(lfilter=self.lfilter, iface=self.ifout, count=1, timeout=0.5)
         s.start()
+        sleep(tmout)
         sendp(pkt, iface=self.ifin, count=1, verbose=False)
         logging.info('TG > ' + repr(pkt))
-        sleep(tmout)
         self.testpmd.rdout()
-        sniffed = s.stop()
-        res = self.validate(sniffed)
+        s.join()
+        res = self.validate(s.results)
         if res == self.PROBE_NO_MATCH:
             raise UnitTestMatchError(self.id, pkt)
         elif res == self.PROBE_NO_CAPTURE:
