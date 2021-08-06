@@ -60,7 +60,7 @@ class RCmd:
     # [[cmd1], [cmd2, out2] ... ]
     def execute(self, commands: list):
         for cmd in commands:
-            logging.info('execute command:' + cmd[0])
+            logging.info('DUT> ' + cmd[0])
             self.stdin.write(cmd[0] + '\n')
             self.stdin.flush()
             time.sleep(.1)
