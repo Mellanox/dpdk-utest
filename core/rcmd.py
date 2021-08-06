@@ -76,3 +76,4 @@ class RCmd:
                     break
             if not verdict:
                 raise RCmdError(cmd[0])
+                return
