@@ -38,8 +38,8 @@ class Cli:
         l = list(map(lambda e: re.split('[=#\n]', e), f))
         for e in l:
             self.config[e[0]] = e[1]
-        if re.search('[\'\"]', self.config['cmd']) is not None:
-            self.config['cmd'] = re.split('[\'\"]', self.config['cmd'])[1]
+        if re.search('[\'\"]', self.config['dut_cmd']) is not None:
+            self.config['dut_cmd'] = re.split('[\'\"]', self.config['dut_cmd'])[1]
 
     def parse_args(self):
         self.args = self.cl.parse_args()

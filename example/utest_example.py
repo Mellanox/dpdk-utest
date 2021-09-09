@@ -4,13 +4,12 @@
 # @see test.out for the test output
 #
 
-import logging
-from scapy.all import *
+from cli import Cli
+from rcmd import RCmdError
+from testpmd import TestPMD
+from testpmd_utest import UTest, UnitTestMatchError
 
-from core.cli import Cli
-from core.rcmd import RCmdError
-from core.testpmd import TestPMD
-from core.testpmd_utest import UTest, UnitTestMatchError
+from scapy.all import *
 
 pkt_udp = Ether() / IPv6() / UDP() / Raw(b'/xff' * 4)
 pkt_tcp = Ether() / IPv6() / TCP() / Raw(b'/xaa' * 4)
