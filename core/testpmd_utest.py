@@ -35,8 +35,10 @@ class UTest:
         self.verbose = True
         self.id = id
         self.testpmd = testpmd
-        self.ifin = config['ifin'] if 'ifin' in config.keys() else None
-        self.ifout = config['ifout'] if 'ifout' in config.keys() else self.ifin
+        self.iface_send = config['iface_send'] \
+                          if 'iface_send' in config.keys() else None
+        self.iface_recv = config['iface_recv'] \
+                          if 'iface_recv' in config.keys() else self.iface_send
 
     def lfilter(self, pkt=None):
         return True
@@ -45,10 +47,11 @@ class UTest:
         return self.PROBE_OK
 
     def send_recv(self, pkt, tmout):
-        s = AsyncSniffer(lfilter=self.lfilter, iface=self.ifout, count=1, timeout=0.5)
+        s = AsyncSniffer(lfilter=self.lfilter, iface=self.iface_recv,
+                         count=1, timeout=0.5)
         s.start()
         sleep(tmout)
-        sendp(pkt, iface=self.ifin, count=1, verbose=False)
+        sendp(pkt, iface=self.iface_send, count=1, verbose=False)
         logging.info('TG > ' + repr(pkt))
         self.testpmd.rdout()
         s.join()
@@ -60,7 +63,7 @@ class UTest:
 
     def send(self, pkt, match=None):
         logging.info('TG > ' + repr(pkt))
-        sendp(pkt, iface=self.ifin, count=1, verbose=False)
+        sendp(pkt, iface=self.iface_send, count=1, verbose=False)
         sleep(.1)
         out = self.testpmd.rdout()
         if match is not None and [e for e in out if re.search(match, e)] == []:

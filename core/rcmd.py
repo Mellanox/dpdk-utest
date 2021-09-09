@@ -15,7 +15,7 @@ class RCmd:
     DEFAULT_DELIM = '###'
 
     def __init__(self, config: dict):
-        cmd = os.path.join(config['path'], config['cmd'])
+        cmd = os.path.join(config['dut_cmd_path'], config['dut_cmd'])
         self.config = config
         self.config['delim'] = config['delim'] \
             if 'delim' in config.keys() \
@@ -27,8 +27,8 @@ class RCmd:
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             logging.info(cmd)
             self.ssh.connect(config['dut'],
-                             username=config['username'],
-                             password=config['password'])
+                             username=config['dut_username'],
+                             password=config['dut_password'])
             # force stderr stdout flush
             self.stdin, \
             self.stdout, \
