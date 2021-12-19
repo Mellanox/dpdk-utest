@@ -46,7 +46,7 @@ class UTest:
     def validate(self, sniffed=None):
         return self.PROBE_OK
 
-    def send_recv(self, pkt, tmout):
+    def send_recv(self, pkt, tmout=ASYNC_TMOUT):
         s = AsyncSniffer(lfilter=self.lfilter, iface=self.iface_recv,
                          count=1, timeout=0.5)
         s.start()
