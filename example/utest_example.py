@@ -1,6 +1,8 @@
 #! /usr/bin/env python3
 
 #
+# sudo PYTHONPATH=$PWD/../core ./utest_example.py \
+# --config=example.conf --pkt-udp
 # @see test.out for the test output
 #
 
