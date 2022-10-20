@@ -75,7 +75,7 @@ class TestPMD(RCmd):
         self.name = 'PMD> '
 
         dut = conf.data['dut']
-        testpmd = os.path.join(dut['path'], conf.test['prog'] + ' 2> \&1')
+        testpmd = dut['path'] + '/' + conf.test['prog'] + ' 2> \&1'
         logging.info('TESTPMD> connecting to '
                      + dut['username'] + '@' + dut['host'])
         RCmd.__init__(self, dut['host'], dut['username'], dut['password'],
