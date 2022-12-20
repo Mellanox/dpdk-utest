@@ -63,7 +63,8 @@ class RCmd:
         pattern = r'{}'.format(expected)
         logging.debug('\n>>>>>\n'+pattern+'\n<<<<<')
         res = re.search(pattern, self.output, re.DOTALL|re.MULTILINE)
-        if not res: raise RCmdError('\n=== match failed: ' + expected)
+        if not res: raise RCmdError('\n=== match failed\nexpected ' + expected
+                                    + '\noutput: ' + self.output)
 
     def close(self):
         self.ssh.close()
