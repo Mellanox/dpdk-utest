@@ -54,6 +54,9 @@ p: &phase
   # TG command - optional     
   tg:
 
+  # VM command - optional
+  vm:
+
   # phase results to match - optional
   results:
     pmd:
