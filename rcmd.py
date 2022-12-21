@@ -101,14 +101,19 @@ class Scapy(RCmd):
         self.delim = "'END-OF-INPUT'"
         self.name = tag + '> '
 
+        netdev_names = ('if', 'pf', 'vf', 'rf')
+
         logging.info(f'{tag}> connecting to ' +
                      conf['username'] + '@' + conf['host'])
         RCmd.__init__(self, conf['host'], conf['username'], conf['password'],
                       'python3 -i -u - 2> \&1')
-        if conf['if0'] is not None:
-            self.execute('if0 = \'' + conf['if0'] + '\'')
-        if conf['if1'] is not None:
-            self.execute('if1 = \'' + conf['if1'] + '\'')
+        for name in netdev_names:
+            for i in ( '0', '1'):
+                dev = name + i
+                if dev in conf.keys():
+                    logging.debug(f'{tag}> {dev} = {conf[dev]}')
+                    self.execute(dev + ' = \'' + conf[dev] + '\'')
+
         logging.debug("===================")
         self.execute('from scapy.all import *')
         str = r"(Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/\
