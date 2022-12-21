@@ -18,13 +18,27 @@ class RCmd:
     name='RCmd> '
     output = ''
 
-    def __init__(self, rhost:str, username:str, password:str, prog:str):
+    # (self, rhost:str, username:str, password:str, prog:str)
+    def __init__(self, rhost:str, **kwargs):
         try:
             self.ssh = paramiko.SSHClient()
             self.ssh.load_system_host_keys()
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            uname = None
+            passwd = None
+            if 'ssh_key' in kwargs.keys():
+                self.ssh.connect(rhost, key_filename=kwargs['ssh_key'])
+            else:
+                if 'username' in kwargs.keys(): uname = kwargs['username']
+                if 'password' in kwargs.keys(): passwd = kwargs['password']
+                self.ssh.connect(rhost, username=uname, password=passwd)
+
+            if 'prog' in kwargs.keys():
+                prog = kwargs['prog']
+            else:
+                prog = '/bin/sh'
             logging.info(prog)
-            self.ssh.connect(rhost, username=username, password=password)
             # force stderr stdout flush
             self.stdin, \
             self.stdout, \
@@ -79,8 +93,9 @@ class TestPMD(RCmd):
         testpmd = dut['path'] + '/' + conf.test['prog'] + ' 2> \&1'
         logging.info('TESTPMD> connecting to '
                      + dut['username'] + '@' + dut['host'])
-        RCmd.__init__(self, dut['host'], dut['username'], dut['password'],
-                      testpmd)
+        RCmd.__init__(self, dut['host'],
+                      username=dut['username'], password=dut['password'],
+                      prog=testpmd)
         super().execute('show port summary all')
         self.match('^0\s{1,}([0-9A-F]{2}:){5}[0-9A-F]{2}')
 
@@ -105,8 +120,9 @@ class Scapy(RCmd):
 
         logging.info(f'{tag}> connecting to ' +
                      conf['username'] + '@' + conf['host'])
-        RCmd.__init__(self, conf['host'], conf['username'], conf['password'],
-                      'python3 -i -u - 2> \&1')
+        RCmd.__init__(self, conf['host'],
+                      username=conf['username'], password=conf['password'],
+                      prog='python3 -i -u - 2> \&1')
         for name in netdev_names:
             for i in ( '0', '1'):
                 dev = name + i
