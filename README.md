@@ -21,10 +21,16 @@ tg:
   username:  
   # TG password  
   password:  
-  # network interface to send packets to DUT  
-  if0:  
-  # network interface to receive packets from DUT  
-  if1:  
+  # general network interface 0  
+  if0:
+  # general network interface 1  
+  if1:
+  # PF
+  pf[0,1]:
+  # virtual interface - SRIOv or Auxiliary
+  vf[0,1]:
+  # representor
+  rf[0,1]:
 ```
 
 ## test file format
