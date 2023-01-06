@@ -5,7 +5,7 @@ import time, re
 import logging
 import os
 
-from conf import TestConf
+utest_logger = logging.getLogger('unit-tests-logger')
 
 class RCmdError(Exception):
     def __init__(self, cmd):
@@ -38,7 +38,7 @@ class RCmd:
                 prog = kwargs['prog']
             else:
                 prog = '/bin/sh'
-            logging.info(prog)
+            utest_logger.info(prog)
             # force stderr stdout flush
             self.stdin, \
             self.stdout, \
@@ -47,7 +47,7 @@ class RCmd:
             self.rdout()
         except Exception as e:
             if self.stdout is not None: print(self.stdout.readlines())
-            logging.error("TestPMD failed: ", e.__class__, "occurred.")
+            utest_logger.error("TestPMD failed: ", e.__class__, "occurred.")
             exit(-1)
 
     # paramiko stdout.readline() can block
@@ -60,7 +60,7 @@ class RCmd:
             line = self.stdout.readline()
             if len(line) > 1:
                 if re.search(self.delim, line) is None:
-                    logging.info(self.name + line.strip())
+                    utest_logger.info(self.name + line.strip())
                     self.output += line
                 else:
                     break
@@ -75,7 +75,7 @@ class RCmd:
     def match(self, expected:str):
         self.rdout()
         pattern = r'{}'.format(expected)
-        logging.debug('\n>>>>>\n'+pattern+'\n<<<<<')
+        utest_logger.debug('\n>>>>>\n'+pattern+'\n<<<<<')
         res = re.search(pattern, self.output, re.DOTALL|re.MULTILINE)
         if not res: raise RCmdError('\n=== match failed\nexpected ' + expected
                                     + '\noutput: ' + self.output)
@@ -85,13 +85,13 @@ class RCmd:
         del self.ssh, self.stdin, self.stdout, self.stderr
 
 class TestPMD(RCmd):
-    def __init__(self, conf:TestConf):
+    def __init__(self, test:dict, data:dict):
         self.delim = '###'
         self.name = 'PMD> '
 
-        dut = conf.data['dut']
-        testpmd = dut['path'] + '/' + conf.test['prog'] + ' 2> \&1'
-        logging.info('TESTPMD> connecting to '
+        dut = data['dut']
+        testpmd = dut['path'] + '/' + test['prog'] + ' 2> \&1'
+        utest_logger.info('TESTPMD> connecting to '
                      + dut['username'] + '@' + dut['host'])
         RCmd.__init__(self, dut['host'],
                       username=dut['username'], password=dut['password'],
@@ -116,26 +116,55 @@ class Scapy(RCmd):
         self.delim = "'END-OF-INPUT'"
         self.name = tag + '> '
 
-        netdev_names = ('if', 'pf', 'vf', 'rf')
-
-        logging.info(f'{tag}> connecting to ' +
+        utest_logger.info(f'{tag}> connecting to ' +
                      conf['username'] + '@' + conf['host'])
         RCmd.__init__(self, conf['host'],
                       username=conf['username'], password=conf['password'],
                       prog='python3 -i -u - 2> \&1')
-        for name in netdev_names:
-            for i in ( '0', '1'):
-                dev = name + i
-                if dev in conf.keys():
-                    logging.debug(f'{tag}> {dev} = {conf[dev]}')
-                    self.execute(dev + ' = \'' + conf[dev] + '\'')
 
-        logging.debug("===================")
+        interfaces = conf['interfaces']
+        for dev in interfaces.keys():
+            _log = f'{tag}> {dev} = {interfaces[dev]}'
+            utest_logger.debug(_log)
+            self.execute(dev + ' = \'' + interfaces[dev] + '\'')
+
+        utest_logger.debug("===================")
         self.execute('from scapy.all import *')
         str = r"(Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/\
               IP(src='1.1.1.1', dst='2.2.2.2')/\
               UDP(sport=1234, dport=5678)).command()"
         self.execute(str)
         self.match('sport=1234, dport=5678')
-        logging.debug("===================")
+        utest_logger.debug("===================")
+
+
+class Shell(RCmd):
+    def __init__(self, conf):
+        self.delim = '###'
+        self.name = conf['host'] +'> '
+        utest_logger.info('{0} {1} {2}'.format(conf['host'], conf['username'],conf['password']))
+        RCmd.__init__(self, conf['host'],
+                      username=conf['username'], password=conf['password'])
+
+    def netdev_resolve_mac(self, mac:str):
+        commands = """
+            result='none none'
+            for p in /sys/class/net/*; do
+            address="$(cat $p/address)"
+            #echo "$address"
+            if test ${address} = ${mac}; then
+            pci=$(ethtool -i $(basename $p) | awk '/^bus-info/ {print $NF}')
+            echo $(basename $p) $pci
+            fi
+            done
+            """
+
+        utest_logger.debug(self.name + 'send command:\n' + f'mac={mac}')
+        utest_logger.debug(self.name + 'send command: ' + commands)
+        self.stdin.write(f'mac={mac}' + '\n')
+        self.stdin.write(commands + '\n')
+        utest_logger.info(self.name + 'get result')
+        netdev,pci = self.stdout.readline().split()
+        utest_logger.debug(self.name + f'mac:{mac} netdev:{netdev} PCI:{pci}')
+        return netdev,pci
 

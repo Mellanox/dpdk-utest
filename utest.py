@@ -7,13 +7,15 @@
 from conf import TestConf
 from rcmd import *
 
+utest_logger = logging.getLogger('unit-tests-logger')
+
 class Agents:
     testpmd = None
     tg = None
     vm = None
 
     def __init__(self, conf:dict):
-        self.testpmd = TestPMD(conf)
+        self.testpmd = TestPMD(conf.test, conf.data)
         if 'tg' in conf.data:
             self.tg = Scapy(conf.data['tg'], 'TG')
         if 'vm' in conf.data:
@@ -27,7 +29,7 @@ class Agents:
 def do_phase(agents:Agents, phase:dict):
     repeat = phase['repeat'] if 'repeat' in phase else 1
     for i in range(0, repeat):
-        logging.info("#### PHASE: " + phase['name'] + ' ######')
+        utest_logger.info("#### PHASE: " + phase['name'] + ' ######')
         for key in phase.keys():
             # first, run commands in order specified by the phase
             if key == 'pmd': agents.testpmd.execute(phase['pmd'])
@@ -51,10 +53,10 @@ if __name__ == "__main__":
             for i in range(0, flow['repeat']):
                 for phase in flow['phases']: do_phase(agents, phase)
 
-        logging.info('=== TEST COMPLETED')
+        utest_logger.info('=== TEST COMPLETED')
         # must be called explicitly to prevent paramiko crash - known issue
         agents.close()
 
     except Exception as e:
-        logging.error("Test failed: ", e.__class__)
+        utest_logger.error("Test failed: ", e.__class__)
 
