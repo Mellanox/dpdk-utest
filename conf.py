@@ -5,6 +5,9 @@ import argparse
 import logging
 import re
 
+from setup_host import *
+
+utest_logger = logging.getLogger('unit-tests-logger')
 
 class CliError(Exception):
     def __init__(self):
@@ -24,6 +27,8 @@ class TestConf:
                              help='test commands file')
         self.cl.add_argument('--show', action='store_true',
                              help='show test commands')
+        self.cl.add_argument('--no-fw-reset', action='store_true',
+                             help='disable DUT FW reset')
         self.cl.add_argument('-v', '--verbose', action='store_true',
                              help='add debug logs')
         self.parse_args()
@@ -52,24 +57,24 @@ class TestConf:
     def validate_pmd_command(self, phase:dict):
         name = phase['name']
         if not isinstance(phase['pmd'], list):
-            logging.error(f'[{name}]: bad format: pmd: [...]')
+            utest_logger.error(f'[{name}]: bad format: pmd: [...]')
             exit(-1)
         for cmd in phase['pmd']:
             if not isinstance(cmd, dict):
-                logging.error(f'[{name}]: bad format: pmd: [{dict}...]')
+                utest_logger.error(f'[{name}]: bad format: pmd: [{dict}...]')
                 exit(-1)
             keys = cmd.keys()
             for tag in ['command', 'result']:
                 if not tag in keys:
-                    logging.error(f'[{name}]: bad pmd format: missing {tag}')
+                    utest_logger.error(f'[{name}]: bad pmd format: missing {tag}')
                     exit(-1)
                 if tag == 'command' and not isinstance(cmd[tag], str):
-                    logging.error(f'[{name}]: bad pmd format: command is string')
+                    utest_logger.error(f'[{name}]: bad pmd format: command is string')
                     exit(-1)
                 if tag == 'result':
                     if not isinstance(cmd[tag], str) and \
                             not isinstance(cmd[tag], type(None)):
-                        logging.error(f'[{name}]: bad pmd format: '+
+                        utest_logger.error(f'[{name}]: bad pmd format: '+
                                      'result is string or None')
                         exit(-1)
 
@@ -77,36 +82,36 @@ class TestConf:
     def validate_phase(self, phases:list):
         for phase in phases:
             if not isinstance(phase, dict):
-                logging.error('bad phase format: not a dict type')
+                utest_logger.error('bad phase format: not a dict type')
                 exit(-1)
-            keys = phase.keys();
+            keys = phase.keys()
             if not 'name' in keys:
-                logging.error('bad phase format: no "name" tag')
+                utest_logger.error('bad phase format: no "name" tag')
                 exit(-1)
             name = phase['name']
             for key in keys:
                 if key == 'pmd': self.validate_pmd_command(phase)
                 if key in [ 'tg', 'vm', 'result' ]:
                     if not isinstance(key, str):
-                        logging.error(f'[{name}]: bad format: ' + key)
+                        utest_logger.error(f'[{name}]: bad format: ' + key)
                         exit(-1)
                 if key == 'result':
                     if not isinstance(phase['result'], dict):
-                        logging.error(f'[{name}]: bad result format')
+                        utest_logger.error(f'[{name}]: bad result format')
                         exit(-1)
 
     def validate_flow(self):
         for flow in self.test['flow']:
             if not isinstance(flow, dict):
-                logging.error('bad flow format: ' +
+                utest_logger.error('bad flow format: ' +
                               '{phases: [...], repeat: <num> }} ')
                 exit(-1)
             if not 'phases' in flow or not 'repeat' in flow:
-                logging.error('bad flow format: ' +
+                utest_logger.error('bad flow format: ' +
                               '{phases: [...], repeat: <num> }} ')
                 exit(-1)
             if not isinstance(flow['phases'], list):
-               logging.error('bad flow format: ' +
+               utest_logger.error('bad flow format: ' +
                              '{phases: [...], repeat: <num> }} ')
                exit(-1)
             self.validate_phase(flow['phases'])
@@ -115,12 +120,13 @@ class TestConf:
     def validate_test(self):
         for tag in [ 'prog', 'flow' ]:
             if not tag in self.test:
-                logging.error('bad test format: ' + f'no "{tag}" tag')
+                utest_logger.error('bad test format: ' + f'no "{tag}" tag')
                 exit(-1)
         if not isinstance(self.test['flow'], list):
-            logging.error('bad flow format: ' + 'flow: [ <phase1> ... ] ')
+            utest_logger.error('bad flow format: ' + 'flow: [ <phase1> ... ] ')
             exit(-1)
         self.validate_flow()
+
 
     def parse_args(self):
         self.args = self.cl.parse_args()
@@ -129,14 +135,16 @@ class TestConf:
         else :
             log_format = '%(message)s'
         log_level = logging.INFO if not self.args.verbose else logging.DEBUG
-        logging.basicConfig(level=log_level, format=log_format)
-        self.data = self.import_yaml(self.args.config)
+        utest_logger.setLevel(log_level)
+        log_handler = logging.StreamHandler()
+        log_handler.setLevel(log_level)
+        log_handler.setFormatter(logging.Formatter(log_format))
+        utest_logger.addHandler(log_handler)
+
+
+        # utest_logger.basicConfig(level=log_level, format=log_format)
         self.test = self.import_yaml(self.args.test)
         self.validate_test()
-        for i in range(len(self.data['dut']['ports'])):
-            self.test['prog'] = \
-                re.sub('PORT_' + str(i), self.data['dut']['ports'][i],
-                       self.test['prog'])
         if self.args.show is True:
             pmd = ''
             tg = ''
@@ -151,3 +159,50 @@ class TestConf:
             print('############### TG:\n' + tg)
             print('############### VM:\n' + vm)
             exit(0)
+        self.data = self.import_yaml(self.args.config)
+
+        cmdline = self.test['prog']
+        if 'setup' in self.test.keys():
+            dut = self.data['dut']
+            flags = NO_DUT_FW_RESET if self.args.no_fw_reset else 0
+            dut['mst_dev'] = setup_dut(self.test['setup'], dut, flags=flags)
+            utest_logger.debug('mst device: ' + dut['mst_dev'])
+            dut['interfaces'] = dut_interfaces(dut, dut['mst_dev'])
+            utest_logger.debug('DUT interfaces: ' + str(dut['interfaces']))
+
+            for port in dut['interfaces'].keys():
+                cmdline = re.sub(port, dut['interfaces'][port], cmdline)
+            utest_logger.debug('cmdline:' + cmdline)
+
+            if 'tg' in self.data.keys():
+                tg = self.data['tg']
+                tg['interfaces'] = host_interfaces(tg, dut['mst_dev'])
+                utest_logger.debug('TG interfaces: ' + str(tg['interfaces']))
+                self.data['tg']['interfaces'] = tg['interfaces']
+
+            if 'vm' in self.data.keys():
+                vm = self.data['vm']
+                vm['interfaces'] = host_interfaces(vm, dut['mst_dev'])
+                utest_logger.debug('VM interfaces: ' + str(vm['interfaces']))
+                self.data['vm']['interfaces'] = vm['interfaces']
+
+        else: # static configuration
+            if re.search('PORT_\d', self.test['prog']) is not None:
+                dut = self.data['dut']
+                for i in range(len(dut['ports'])):
+                    cmdline = re.sub('PORT_' + str(i), dut['ports'][i], cmdline)
+
+            if 'tg' in self.data.keys():
+                host = self.data['tg']
+                if 'if0' in host.keys(): host['interfaces']['if0'] = host['if0']
+                if 'if1' in host.keys(): host['interfaces']['if1'] = host['if1']
+                self.data['tg']['interfaces'] = host['interfaces']
+
+            if 'vm' in self.data.keys():
+                host = self.data['vm']
+                if 'if0' in host.keys(): host['interfaces']['if0'] = host['if0']
+                if 'if1' in host.keys(): host['interfaces']['if1'] = host['if1']
+                self.data['vm']['interfaces'] = host['interfaces']
+
+        self.test['prog'] = cmdline
+
