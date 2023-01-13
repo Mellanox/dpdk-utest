@@ -122,13 +122,10 @@ class RemoteOps:
         rdir=f'/sys/bus/pci/devices/{pci}/net'
         return self.rsh['ls'][rdir]().split('\n')[0]
 
-    def netconfig(self, mt:str) -> dict:
-        net_conf = {}
-        for port_id, pf_pci in enumerate(self.dev_db[mt]):
-            pf_key = 'pf' + str(port_id)
-            net_conf[pf_key] = pf_pci
-            for vf_id, vf_pci in enumerate(self.show_vf(mt, port_id)):
-                net_conf[pf_key + 'vf' + str(vf_id)] = vf_pci
+    def link_up(self, netdev:str):
+        ipcmd = self.rsh['ip']
+        param = f'link set up dev {netdev}'.split()
+        ipcmd[param]()
 
 class DUTRemoteOps(RemoteOps):
     def __init__(self, rhost:str, **kwargs):
@@ -156,7 +153,7 @@ class DUTRemoteOps(RemoteOps):
     def config_fdb(self, mt:str, port:int):
         _log = f'{self.rhost}: config FDB on port{port}'
         utest_logger.info(_log)
-        if self.show_port_representors(mt, port) is not []: return
+        if len(self.show_port_representors(mt, port)): return
 
         pci = self.dev_db[mt][port]
         sysfs_bind = f'/sys/bus/pci/drivers/mlx5_core/bind'
