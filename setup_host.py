@@ -17,8 +17,8 @@ def ssh_params(conf:dict) -> dict:
 def select_mt_dev(mt_list:list, test_conf:dict) -> str:
     if 'hw' not in test_conf.keys() or test_conf['hw'] == 'any':
         mt_dev = mt_list[0]
-    elif test_conf['mt_dev'] in mt_list:
-        mt_dev = test_conf['mt_dev']
+    elif test_conf['hw'] in mt_list:
+        mt_dev = test_conf['hw']
     else:
         mt_dev = None
     return mt_dev
@@ -86,6 +86,9 @@ def host_interfaces(conf:dict, mt_dev:str) -> dict:
         for rep_id, rep in enumerate(host.show_port_representors(mt_dev, pf_id)):
             rep_key = f'{pf_key}rf{rep_id}'
             interfaces[rep_key] = rep
+
+    for netdev in interfaces.values():
+        host.link_up(netdev)
 
     host.disconnect()
     return interfaces

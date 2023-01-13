@@ -25,6 +25,8 @@ class TestConf:
                              help='configuration file')
         self.cl.add_argument('--test', type=str, required=True,
                              help='test commands file')
+        self.cl.add_argument('--setup-hw', type=str,
+                             help='set DUT MST port')
         self.cl.add_argument('--show', action='store_true',
                              help='show test commands')
         self.cl.add_argument('--no-fw-reset', action='store_true',
@@ -141,7 +143,6 @@ class TestConf:
         log_handler.setFormatter(logging.Formatter(log_format))
         utest_logger.addHandler(log_handler)
 
-
         # utest_logger.basicConfig(level=log_level, format=log_format)
         self.test = self.import_yaml(self.args.test)
         self.validate_test()
@@ -164,8 +165,11 @@ class TestConf:
         cmdline = self.test['prog']
         if 'setup' in self.test.keys():
             dut = self.data['dut']
+            setup = self.test['setup']
+            if self.args.setup_hw is not None:
+                setup['hw'] = self.args.setup_hw
             flags = NO_DUT_FW_RESET if self.args.no_fw_reset else 0
-            dut['mst_dev'] = setup_dut(self.test['setup'], dut, flags=flags)
+            dut['mst_dev'] = setup_dut(setup, dut, flags=flags)
             utest_logger.debug('mst device: ' + dut['mst_dev'])
             dut['interfaces'] = dut_interfaces(dut, dut['mst_dev'])
             utest_logger.debug('DUT interfaces: ' + str(dut['interfaces']))
