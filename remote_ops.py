@@ -170,7 +170,11 @@ class DUTRemoteOps(RemoteOps):
 
     def config_huge_pages(self, hp_num:int):
         rcmd = self.rsh['cat']['/sys/devices/system/node/online']
-        last_node = rcmd().strip('\n').split('-')[1]
+        out = rcmd().strip('\n')
+        if re.search(',|-', out) is not None:
+            last_node = rcmd().strip('\n').split('-')[1]
+        else:
+            last_node = out
         for i in range(0, int(last_node) + 1):
             sysfs_hp=f'/sys/devices/system/node/node{i}/' + \
                      'hugepages/hugepages-2048kB/nr_hugepages'
