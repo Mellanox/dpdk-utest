@@ -11,8 +11,6 @@ dut:
   password:  
   # DUT path to test program  
   path:  
-  # DUT ports for EAL commandline  
-  ports: [ PCI-port0, ... ]  
   
 tg:  
   # TG hostname or IP address  
@@ -21,21 +19,19 @@ tg:
   username:  
   # TG password  
   password:  
-  # general network interface 0  
-  if0:
-  # general network interface 1  
-  if1:
-  # PF
-  pf[0,1]:
-  # virtual interface - SRIOv or Auxiliary
-  vf[0,1]:
-  # representor
-  rf[0,1]:
+
+vm:
+    # VM hostname or IP address  
+    host:
+    # VM username  
+    username:
+    # VM password  
+    password:  
 ```
 
 ## test file format
 ``` yaml
-prog: 'dpdk-testpmd -a PORT_0 -a PORT_1 -- -i'
+prog: 'dpdk-testpmd -a PORT_0_params -a PORT_1_params -- -i'
 
 flow:
   -
@@ -71,6 +67,14 @@ p: &phase
       
   # phase repeat counter - optional
   repeat:
+  
+setup:
+  hca: # any  or  mt<ID> 
+  fw: # any or fw version
+  hws: # True|False
+  pf: [<nic|fdb>, <nic|fdb>]
+  vf: [<VF num>, <VF num>]
+  sf: [<SF num>, <SF num>]  
 ```      
   
 ### Phase execution order:
