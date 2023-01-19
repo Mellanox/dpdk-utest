@@ -15,10 +15,11 @@ def ssh_params(conf:dict) -> dict:
     return params
 
 def select_mt_dev(mt_list:list, test_conf:dict) -> str:
-    if 'hw' not in test_conf.keys() or test_conf['hw'] == 'any':
+    hca = test_conf['hca']
+    if 'hca' not in test_conf.keys() or hca == 'any':
         mt_dev = mt_list[0]
-    elif test_conf['hw'] in mt_list:
-        mt_dev = test_conf['hw']
+    elif hca in mt_list:
+        mt_dev = hca
     else:
         mt_dev = None
     return mt_dev
