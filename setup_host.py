@@ -54,6 +54,8 @@ def setup_dut(test_conf:dict, dut_conf:dict, flags = 0) -> str:
     for port_id, pf_conf in enumerate(test_conf['pf']):
         if pf_conf == 'fdb':
             dut.config_fdb(mt_dev, port_id)
+
+    dut.config_huge_pages(1024)
     dut.disconnect()
     return mt_dev
 
