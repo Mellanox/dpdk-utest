@@ -28,10 +28,17 @@ class RemoteOps:
         self.rsh['sh']['-c', f'echo {token} > {sysfs_file}']()
 
     def connect(self):
-        self.disconnect()
-        self.rsh = SshMachine(host=self.rhost, user=self.user,
-                              password=self.password, keyfile=self.keyfile)
-        return self
+        if self.rsh is not None: return self
+        utest_logger.debug('trying to connect to: ' + str(self.rhost))
+        try:
+            self.rsh = SshMachine(host=self.rhost, user=self.user,
+                                  password=self.password, keyfile=self.keyfile,
+                                  connect_timeout=3)
+        except Exception as e:
+            utest_logger.error('connection error: ' + str(type(e)))
+            exit(1)
+        finally:
+            return self
 
     def disconnect(self):
         if self.rsh is not None:
@@ -46,13 +53,28 @@ class RemoteOps:
         self.rsh['reboot']()
         self.rsh = None
 
+    def fw_reset_cloud_host(self):
+        out=''
+        fw_reset = self.rsh['/workspace/cloud_tools/cloud_firmware_reset.sh']
+        for round in range(0,3):
+            try:
+                out = fw_reset['--ips', self.rhost]() # blocking
+            except Exception as e:
+                utest_logger.info('Error: ' + str(type(e)))
+                continue
+
+            if re.search('"status": "success"', out) is not None:
+                utest_logger.debug('FW reset: OK')
+                return True
+            else:
+                utest_logger.info('FW reset: failed')
+
+        return False
+
     def fw_reset(self, mt:str) -> bool:
         _log = f'{self.rhost}: reset FW'
         utest_logger.info(_log)
-        if self.cloud_host():
-            fw_reset = self.rsh['/workspace/cloud_tools/cloud_firmware_reset.sh']
-            out = fw_reset['--ips', self.rhost]() # blocking
-            res = re.search('"status": "success"', out) is not None
+        if self.cloud_host(): res = self.fw_reset_cloud_host()
         else:
             mst_dev = f'/dev/mst/{mt}_pciconf0'
             fw_reset = self.rsh['mlxfwreset']
@@ -66,6 +88,7 @@ class RemoteOps:
         return out.group(0).split()[1][3:]
 
     def mst_status(self) -> dict:
+        self.dev_db = {}
         mst = self.rsh['mst']
         mst['restart']()
         mst_output = mst['status', '-v']().split('\n')
@@ -113,9 +136,10 @@ class RemoteOps:
         representors = [None] * vf_num
         for line in devlink['port']().split('\n'):
             if re.search(f'{pci}.*flavour pcivf', line) is not None:
-                tokens = line.split()
-                id = int(tokens[12])
-                representors[id] = tokens[4]
+                match = re.search('vfnum \d', line)
+                vfnum = int(match.group(0).split()[-1])
+                match = re.search('type eth netdev \w{1,}', line)
+                representors[vfnum] = match.group(0).split()[-1]
         return representors
 
     def pci_to_netdev(self, pci:str) -> str:
@@ -135,7 +159,8 @@ class DUTRemoteOps(RemoteOps):
         _log = f'{self.rhost}: config HWS'
         utest_logger.info(_log)
         mst_dev = f'/dev/mst/{mt}_pciconf0'
-        if self.rsh['mcra'][mst_dev, '0x1a3c.1:1']() == '0':
+        hws_status = self.rsh['mcra'][mst_dev, '0x1a3c.1:1']().split('\n')[0]
+        if hws_status == '0x00000000':
             self.rsh['mcra'][mst_dev, '0x1a3c.1:1', '1']()
             self.rsh['/etc/init.d/openibd']['force-restart']()
 

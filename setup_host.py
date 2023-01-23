@@ -24,23 +24,17 @@ def select_mt_dev(mt_list:list, test_conf:dict) -> str:
         mt_dev = None
     return mt_dev
 
-NO_DUT_FW_RESET = 1
+DUT_FW_RESET = 1
 
 def setup_dut(test_conf:dict, dut_conf:dict, flags = 0) -> str:
-    interfaces = {}
-
     dut = DUTRemoteOps(dut_conf['host'], **ssh_params(dut_conf)).connect()
     mt_db = dut.mst_status()
     mt_dev = select_mt_dev(list(mt_db.keys()), test_conf)
     _log = f'{dut.rhost}: mst_dev {mt_dev}'
     utest_logger.info(_log)
 
-    if (flags & NO_DUT_FW_RESET) == NO_DUT_FW_RESET:
-        _log = f'{dut.rhost}: FW reset suppressed'
-        utest_logger.info(_log)
-    else:
+    if (flags & DUT_FW_RESET) == DUT_FW_RESET:
         dut.fw_reset(mt_dev)
-        dut.connect()
     _log = f'{dut.rhost}: FW version ' + dut.fw_version()
     utest_logger.info(_log)
 
