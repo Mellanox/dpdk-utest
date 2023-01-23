@@ -29,8 +29,8 @@ class TestConf:
                              help='set DUT MST port')
         self.cl.add_argument('--show', action='store_true',
                              help='show test commands')
-        self.cl.add_argument('--no-fw-reset', action='store_true',
-                             help='disable DUT FW reset')
+        self.cl.add_argument('--dut-fw-reset', action='store_true',
+                             help='reset DUT FW')
         self.cl.add_argument('-v', '--verbose', action='store_true',
                              help='add debug logs')
         self.parse_args()
@@ -168,7 +168,7 @@ class TestConf:
             setup = self.test['setup']
             if self.args.setup_hw is not None:
                 setup['hw'] = self.args.setup_hw
-            flags = NO_DUT_FW_RESET if self.args.no_fw_reset else 0
+            flags = DUT_FW_RESET if self.args.dut_fw_reset else 0
             dut['mst_dev'] = setup_dut(setup, dut, flags=flags)
             utest_logger.debug('mst device: ' + dut['mst_dev'])
             dut['interfaces'] = dut_interfaces(dut, dut['mst_dev'])
