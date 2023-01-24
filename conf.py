@@ -42,6 +42,18 @@ class TestConf:
         f.close()
         return data
 
+    def update_config_file(self):
+        interfaces = {'dut':self.data['dut']['interfaces']}
+        if 'tg' in self.data.keys():
+            interfaces['tg'] = self.data['tg']['interfaces']
+        if 'vm' in self.data.keys():
+            interfaces['vm'] = self.data['vm']['interfaces']
+        with open(self.args.config, 'a') as f:
+            f.write('\n\n### Interfaces START\n')
+            yaml.dump({'interfaces': interfaces}, f)
+            f.write('### Interfaces END\n')
+        f.close()
+
     def show_phase(self, phase:dict):
         pmd = ''
         tg = ''
@@ -120,6 +132,7 @@ class TestConf:
 
 
     def validate_test(self):
+        utest_logger.info('validating test script ...')
         for tag in [ 'prog', 'flow' ]:
             if not tag in self.test:
                 utest_logger.error('bad test format: ' + f'no "{tag}" tag')
@@ -128,6 +141,7 @@ class TestConf:
             utest_logger.error('bad flow format: ' + 'flow: [ <phase1> ... ] ')
             exit(-1)
         self.validate_flow()
+        utest_logger.info('test script is OK')
 
 
     def parse_args(self):
@@ -163,20 +177,18 @@ class TestConf:
         self.data = self.import_yaml(self.args.config)
 
         cmdline = self.test['prog']
-        if 'setup' in self.test.keys():
-            dut = self.data['dut']
-            setup = self.test['setup']
-            if self.args.setup_hw is not None:
-                setup['hw'] = self.args.setup_hw
-            flags = DUT_FW_RESET if self.args.dut_fw_reset else 0
-            dut['mst_dev'] = setup_dut(setup, dut, flags=flags)
-            utest_logger.debug('mst device: ' + dut['mst_dev'])
+
+        dut = self.data['dut']
+        setup = self.test['setup']
+        if self.args.setup_hw is not None:
+            setup['hw'] = self.args.setup_hw
+        flags = DUT_FW_RESET if self.args.dut_fw_reset else 0
+        dut['mst_dev'] = setup_dut(setup, dut, flags=flags)
+        utest_logger.debug('mst device: ' + dut['mst_dev'])
+        if 'interfaces' not in self.data.keys():
+            utest_logger.debug('resolve interfaces')
             dut['interfaces'] = dut_interfaces(dut, dut['mst_dev'])
             utest_logger.debug('DUT interfaces: ' + str(dut['interfaces']))
-
-            for port in dut['interfaces'].keys():
-                cmdline = re.sub(port, dut['interfaces'][port], cmdline)
-            utest_logger.debug('cmdline:' + cmdline)
 
             if 'tg' in self.data.keys():
                 tg = self.data['tg']
@@ -190,23 +202,17 @@ class TestConf:
                 utest_logger.debug('VM interfaces: ' + str(vm['interfaces']))
                 self.data['vm']['interfaces'] = vm['interfaces']
 
-        else: # static configuration
-            if re.search('PORT_\d', self.test['prog']) is not None:
-                dut = self.data['dut']
-                for i in range(len(dut['ports'])):
-                    cmdline = re.sub('PORT_' + str(i), dut['ports'][i], cmdline)
-
+                self.update_config_file()
+        else:
+            utest_logger.debug('reuse interfaces')
+            self.data['dut']['interfaces'] = self.data['interfaces']['dut']
             if 'tg' in self.data.keys():
-                host = self.data['tg']
-                if 'if0' in host.keys(): host['interfaces']['if0'] = host['if0']
-                if 'if1' in host.keys(): host['interfaces']['if1'] = host['if1']
-                self.data['tg']['interfaces'] = host['interfaces']
-
+                self.data['tg']['interfaces'] = self.data['interfaces']['tg']
             if 'vm' in self.data.keys():
-                host = self.data['vm']
-                if 'if0' in host.keys(): host['interfaces']['if0'] = host['if0']
-                if 'if1' in host.keys(): host['interfaces']['if1'] = host['if1']
-                self.data['vm']['interfaces'] = host['interfaces']
+                self.data['vm']['interfaces'] = self.data['interfaces']['vm']
 
+        for port in dut['interfaces'].keys():
+            cmdline = re.sub(port, dut['interfaces'][port], cmdline)
+        utest_logger.debug('cmdline:' + cmdline)
         self.test['prog'] = cmdline
 
