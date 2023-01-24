@@ -31,6 +31,8 @@ class TestConf:
                              help='show test commands')
         self.cl.add_argument('--dut-fw-reset', action='store_true',
                              help='reset DUT FW')
+        self.cl.add_argument('--dut-skip-conf', action='store_true',
+                             help='skip DUT configuration')
         self.cl.add_argument('-v', '--verbose', action='store_true',
                              help='add debug logs')
         self.parse_args()
@@ -179,12 +181,16 @@ class TestConf:
         cmdline = self.test['prog']
 
         dut = self.data['dut']
-        setup = self.test['setup']
-        if self.args.setup_hw is not None:
-            setup['hw'] = self.args.setup_hw
-        flags = DUT_FW_RESET if self.args.dut_fw_reset else 0
-        dut['mst_dev'] = setup_dut(setup, dut, flags=flags)
-        utest_logger.debug('mst device: ' + dut['mst_dev'])
+        if not self.args.dut_skip_conf:
+            utest_logger.debug('setup DUT')
+            setup = self.test['setup']
+            if self.args.setup_hw is not None:
+                setup['hw'] = self.args.setup_hw
+            flags = DUT_FW_RESET if self.args.dut_fw_reset else 0
+            dut['mst_dev'] = setup_dut(setup, dut, flags=flags)
+            utest_logger.debug('mst device: ' + dut['mst_dev'])
+        else:
+            utest_logger.debug('skip setup DUT')
         if 'interfaces' not in self.data.keys():
             utest_logger.debug('resolve interfaces')
             dut['interfaces'] = dut_interfaces(dut, dut['mst_dev'])
