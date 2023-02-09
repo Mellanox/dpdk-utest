@@ -137,6 +137,9 @@ class Scapy(RCmd):
         self.match('sport=1234, dport=5678')
         utest_logger.debug("===================")
 
+    def execute(self, command:str):
+        utest_logger.info(self.name + command.strip())
+        super().execute(command)
 
 class Shell(RCmd):
     def __init__(self, conf):
