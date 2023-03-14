@@ -3,7 +3,7 @@
 import paramiko
 import time, re
 import logging
-import os
+from remote_ops import RemoteOps
 
 utest_logger = logging.getLogger('unit-tests-logger')
 
@@ -66,10 +66,12 @@ class RCmd:
                     break
 
 
-    def execute(self, command:str):
+    def execute(self, command:str, **kwargs):
         self.output = ''
         self.stdin.write(command + '\n')
         self.stdin.flush()
+        if 'check_proc' in kwargs.keys() and kwargs['check_proc']() is False:
+            raise RCmdError('killer command:\n' + command)
         self.rdout()
 
     def match(self, expected:str):
@@ -85,11 +87,21 @@ class RCmd:
         del self.ssh, self.stdin, self.stdout, self.stderr
 
 class TestPMD(RCmd):
+    ctrl = None
+
     def __init__(self, test:dict, data:dict):
         self.delim = '###'
         self.name = 'PMD> '
 
         dut = data['dut']
+        self.ctrl = RemoteOps(dut['host'],
+                              username=dut['username'],
+                              password=dut['password']).connect()
+
+        if self.is_alive() is True:
+            utest_logger.warn('Enother testpmd process is running')
+            exit(-1)
+
         testpmd = dut['path'] + '/' + test['prog'] + ' 2> \&1'
         utest_logger.info('TESTPMD> connecting to '
                      + dut['username'] + '@' + dut['host'])
@@ -99,6 +111,15 @@ class TestPMD(RCmd):
         super().execute('show port summary all')
         self.match('^0\s{1,}([0-9A-F]{2}:){5}[0-9A-F]{2}')
 
+    def is_alive(self) -> bool:
+        output = self.ctrl.rsh['lslocks']['-u', '-o', 'COMMAND,PATH']()
+        return re.search('^dpdk-testpmd.*dpdk/rte/config', output,
+                         re.DOTALL|re.MULTILINE) is not None
+
+    def close(self):
+        self.ctrl.disconnect()
+        super().close()
+
     #
     # PMD commands format: [ command1 ... ]
     #
@@ -106,8 +127,9 @@ class TestPMD(RCmd):
     # { 'command': <string>, 'result': <string> | None }
     #
     def execute(self, commands:list):
+        if self.is_alive() is False: raise RCmdError('tespmd is dead')
         for cmd in commands:
-            super().execute(cmd['command'])
+            super().execute(cmd['command'], check_proc=self.is_alive)
             if cmd['result'] is not None: self.match(cmd['result'])
 
 
