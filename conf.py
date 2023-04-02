@@ -51,9 +51,25 @@ class TestConf:
         if 'vm' in self.data.keys():
             interfaces['vm'] = self.data['vm']['interfaces']
         with open(self.args.config, 'a') as f:
-            f.write('\n\n### Interfaces START\n')
             yaml.dump({'interfaces': interfaces}, f)
-            f.write('### Interfaces END\n')
+        f.close()
+
+    def remove_old_netconfig(self, filename:str):
+        with open(filename, 'r') as f:
+            data = f.read()
+        f.close()
+        if re.search('\ninterfaces:', data) is None: return
+        utest_logger.info('remove existing intefaces map')
+        xxx = False
+        new_lines = []
+        for line in data.split('\n'):
+            if re.search('^interfaces:', line) is not None: xxx = True
+            elif xxx and re.search('^\s', line) is not None: continue
+            else :
+                xxx = False
+                new_lines.append(line)
+        with open(filename, 'w') as f:
+            for l in new_lines: f.write(l + '\n')
         f.close()
 
     def show_phase(self, phase:dict):
@@ -176,6 +192,7 @@ class TestConf:
             print('############### TG:\n' + tg)
             print('############### VM:\n' + vm)
             exit(0)
+        if not self.args.dut_skip_conf: self.remove_old_netconfig(self.args.config)
         self.data = self.import_yaml(self.args.config)
 
         cmdline = self.test['prog']
@@ -210,7 +227,7 @@ class TestConf:
 
                 self.update_config_file()
         else:
-            utest_logger.debug('reuse interfaces')
+            utest_logger.info('reuse interfaces')
             self.data['dut']['interfaces'] = self.data['interfaces']['dut']
             if 'tg' in self.data.keys():
                 self.data['tg']['interfaces'] = self.data['interfaces']['tg']
