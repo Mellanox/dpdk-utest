@@ -78,11 +78,11 @@ class TestConf:
         vm=''
         if 'pmd' in phase:
             for cmd in phase['pmd']:
-                pmd += cmd['command']
+                pmd += cmd['command'] + '\n'
         if 'tg' in phase:
-            tg = phase['tg']
+            tg = phase['tg'] + '\n'
         if 'vm' in phase:
-            vm = phase['vm']
+            vm = phase['vm'] + '\n'
         return pmd,tg,vm
 
 
