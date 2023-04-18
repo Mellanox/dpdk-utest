@@ -31,8 +31,8 @@ class TestConf:
                              help='show test commands')
         self.cl.add_argument('--dut-fw-reset', action='store_true',
                              help='reset DUT FW')
-        self.cl.add_argument('--dut-skip-conf', action='store_true',
-                             help='skip DUT configuration')
+        self.cl.add_argument('-f', '--fast', action='store_true',
+                             help='fast execution, skip DUT configuration')
         self.cl.add_argument('-v', '--verbose', action='store_true',
                              help='add debug logs')
         self.parse_args()
@@ -192,13 +192,13 @@ class TestConf:
             print('############### TG:\n' + tg)
             print('############### VM:\n' + vm)
             exit(0)
-        if not self.args.dut_skip_conf: self.remove_old_netconfig(self.args.config)
+        if not self.args.fast: self.remove_old_netconfig(self.args.config)
         self.data = self.import_yaml(self.args.config)
 
         cmdline = self.test['prog']
 
         dut = self.data['dut']
-        if not self.args.dut_skip_conf:
+        if not self.args.fast:
             utest_logger.debug('setup DUT')
             setup = self.test['setup']
             if self.args.setup_hw is not None:
