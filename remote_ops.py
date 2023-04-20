@@ -38,6 +38,8 @@ class RemoteOps:
             utest_logger.error('connection error: ' + str(type(e)))
             exit(1)
         finally:
+            self.mst_status()
+            print(self.dev_db)
             return self
 
     def disconnect(self):
