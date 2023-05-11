@@ -102,7 +102,7 @@ class TestPMD(RCmd):
             utest_logger.warn('Enother testpmd process is running')
             exit(-1)
 
-        testpmd = dut['path'] + '/' + test['prog'] + ' 2> \&1'
+        testpmd = dut['path'] + '/' + test['prog'] + ' 2>&1'
         utest_logger.info('TESTPMD> connecting to '
                      + dut['username'] + '@' + dut['host'])
         RCmd.__init__(self, dut['host'],
