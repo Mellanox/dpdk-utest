@@ -1,0 +1,146 @@
+pmd0: &pmd0
+  command: |
+    port stop all
+    flow configure 1 queues_number 4 queues_size 64 quotas_number 32 
+    flow configure 0 queues_number 4 queues_size 64 quotas_number 0 host_port 1 flags 2
+    port start all
+    set verbose 1
+    start
+  result: '^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}\n^Port 1: ([0-9A-F]{2}:){5}[0-9A-F]{2}'
+
+pmd1: &pmd1
+  command: |
+    flow  queue 1 indirect_action 3 create ingress action_id 8 action quota_create limit 18000 mode l3 / end
+    flow pull 1 queue 3
+    flow queue 1 indirect_action 3 query 8
+    flow pull 1 queue 3
+  result: 'unused quota: 18000'
+
+pmd2: &pmd2
+  command: |
+    # INGRESS: shared non-masked quota action on port 0
+    flow actions_template 0 create ingress actions_template_id 1 template shared_indirect / jump / end mask quota_create / jump group 0 / end
+    flow pattern_template 0 create ingress pattern_template_id 1 template eth / end
+    flow template_table 0 create table_id 1 ingress group 1 priority 0 rules_number 4 pattern_template 1 actions_template 1
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions shared_indirect 1 8 / jump group 2 / end
+    flow pull 0 queue 0
+
+    flow pattern_template 0 create ingress pattern_template_id 2 ingress template quota / end
+    flow actions_template 0 create ingress actions_template_id 2 template mark / rss / end mask mark id 0 / rss / end
+    flow template_table 0 create table_id 2 ingress group 2 priority 0 rules_number 4 pattern_template 2 actions_template 2
+    flow queue 0 create 1 template_table 2 pattern_template 0 actions_template 0 postpone no pattern quota quota_state spec pass quota_state mask pass / end actions mark id 0xaa / rss / end
+    flow pull 0 queue 1
+    flow queue 0 create 2 template_table 2 pattern_template 0 actions_template 0 postpone no pattern quota quota_state spec block quota_state mask block / end actions mark id 0xff / rss / end
+    flow pull 0 queue 2
+
+    flow pattern_template 0 create ingress pattern_template_id 0 ingress template eth / ipv4 / udp / end
+    flow actions_template 0 create ingress actions_template_id 0 template jump / end mask jump group 0 / end
+    flow template_table 0 create table_id 0 ingress group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 0 create 3 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+    flow pull 0 queue 3
+  result: '(0 failed, 1 succeeded)(.*\1){3}'
+
+pmd3: &pmd3
+  command: |
+    # INGRESS: Real (vs non-shared) indirect quota action on port 1
+    flow actions_template 1 create ingress actions_template_id 1 template indirect 8 / jump / end mask quota_create / jump group 0 / end
+    flow pattern_template 1 create ingress pattern_template_id 1 template eth / end
+    flow template_table 1 create table_id 1 ingress group 1 priority 0 rules_number 4 pattern_template 1 actions_template 1
+    flow queue 1 create 1 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions indirect 8 / jump group 2 / end
+    flow pull 1 queue 1
+    
+    flow pattern_template 1 create ingress pattern_template_id 2 ingress template quota / end
+    flow actions_template 1 create ingress actions_template_id 2 template mark / rss / end mask mark id 0 / rss / end
+    flow template_table 1 create table_id 2 ingress group 2 priority 0 rules_number 4 pattern_template 2 actions_template 2
+    flow queue 1 create 2 template_table 2 pattern_template 0 actions_template 0 postpone no pattern quota quota_state spec pass quota_state mask pass / end actions mark id 0xbb / rss / end
+    flow pull 1 queue 2
+    flow queue 1 create 3 template_table 2 pattern_template 0 actions_template 0 postpone no pattern quota quota_state spec block quota_state mask block / end actions mark id 0xff / rss / end
+    flow pull 1 queue 3
+    
+    flow pattern_template 1 create ingress pattern_template_id 0 ingress template eth / ipv4 / udp / end
+    flow actions_template 1 create ingress actions_template_id 0 template jump / end mask jump group 0 / end
+    flow template_table 1 create table_id 0 ingress group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 1 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+    flow pull 1 queue 0  
+  result: '(0 failed, 1 succeeded)(.*\1){3}'
+
+p0: &phase0
+  name: config
+  pmd: [ *pmd0, *pmd1, *pmd2, *pmd3 ]
+  tg: |
+    p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+    sendp(p200, iface=pf0)
+    sendp(p200, iface=pf1)
+  result:
+    pmd: 'FDIR matched ID=0xaa.*FDIR matched ID=0xbb'
+
+pmd4: &pmd4
+  command: |  
+    flow queue 1 indirect_action 1 update 8 action quota_update limit 250 update_op set / end
+    flow pull 1 queue 1
+    flow queue 1 indirect_action 1 update 8 action quota_update limit 250 update_op add / end
+    flow pull 1 queue 1
+    flow queue 1 indirect_action 1 query 8
+    flow pull 1 queue 1
+  result: 'unused quota: 500.*1 succeeded'
+
+pmd5: &pmd5
+  command: |
+    flow indirect_action 1 query 8
+  result: 'unused quota: 50'  
+      
+
+p1: &phase1
+  name: set tokens
+  pmd: [ *pmd4 ]
+
+p2: &phase2
+  name: query tokens
+  tg: |
+    sendp(p200, iface=pf0, count=2)
+    sendp(p200, iface=pf1, count=1)
+  result:
+    pmd: '(FDIR matched ID=0xaa)(.*\1){1}.*(FDIR matched ID=0xbb)'
+  pmd: [ *pmd5 ]
+
+pmd6: &pmd6
+  command: |
+    flow indirect_action 1 update 8 action quota_update limit 0 update_op set / end
+  result: Indirect action \#8 updated
+
+phase3: &phase3
+  name: check 0 tokens
+  pmd: [ *pmd6 ]
+  tg: |
+    sendp(p200, iface=pf0, count=2)
+  result:
+    pmd: '(FDIR matched ID=0xaa).*(FDIR matched ID=0xff)'
+
+#### TEST
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -a pf1,dv_flow_en=2 -- -i'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  
+  - 
+    phases: [ *phase1, *phase2 ]
+    repeat: 1
+
+  -
+    phases: [ *phase3 ]
+    repeat: 1
+
+
+setup:
+  hw: mt4125
+  fw: any
+  hws: True
+  pf: [nic, nic]
+  vf: [0, 0]
+  sf: [0, 0]
+
+
+
+### 

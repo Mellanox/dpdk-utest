@@ -1,0 +1,106 @@
+setup:
+    hca: any # [ any | mt<ID> ]
+    fw: any
+    hws: True
+    pf: [nic, fdb]
+    vf: [0, 4]
+    sf: [0, 0]
+
+prog: 'dpdk-testpmd -a pf1,dv_flow_en=2,representor=vf\[0-3\] -- -i'
+
+pmd0: &pmd0
+    command: |
+        show port summary all
+    result: '(^[1234].*_representor.*){4}'
+
+pmd1: &pmd1
+    command: |
+        port stop all
+        flow configure 0 queues_number 4 queues_size 64
+        flow configure 1 queues_number 4 queues_size 64
+        flow configure 2 queues_number 4 queues_size 64
+        flow configure 3 queues_number 4 queues_size 64
+        flow configure 4 queues_number 4 queues_size 64
+        port start all
+        start
+        set verbose 1
+    result: '(^Port [01234]:.*) '
+
+pmd2: &pmd2
+    command: |
+        # FDB: redirect *all* UDP to group 1
+        flow pattern_template 0 create transfer pattern_template_id 0 template eth / ipv4 / end
+        flow actions_template 0 create transfer actions_template_id 0 template jump / end mask jump group 0 / end
+        flow template_table 0 create transfer table_id 0 group 0 priority 0 rules_number 4 pattern_template 0  actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / end actions jump group 1 / end
+        flow pull 0 queue 0
+
+        #non fragmented
+        flow pattern_template 0 create transfer pattern_template_id 10 template eth / ipv4 fragment_offset spec 0 fragment_offset mask 0x3fff / end
+        #fragmented
+        flow pattern_template 0 create transfer pattern_template_id 11 template eth / ipv4 fragment_offset spec 1 fragment_offset last 0x3fff fragment_offset mask 0x3fff / end
+        flow actions_template 0 create transfer actions_template_id 10 template represented_port / end mask represented_port / end
+        flow template_table 0 create transfer table_id 10 group 1 priority 0 rules_number 4 pattern_template 10  pattern_template 11 actions_template 10
+
+        #non fragmented
+        flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 fragment_offset spec 0 fragment_offset mask 0x3fff / end actions represented_port ethdev_port_id 1 / end
+        flow pull 0 queue 0
+        #fragmented
+        flow queue 0 create 0 template_table 10 pattern_template 1 actions_template 0 postpone no pattern eth / ipv4 fragment_offset spec 1 fragment_offset last 0x3fff fragment_offset mask 0x3fff / end actions represented_port ethdev_port_id 2 / end
+        flow pull 0 queue 0
+    result: '(0 failed, 1 succeeded)(.*\1){2}'  
+
+phase0: &phase0
+    name: ===== CONFIGURATION
+    pmd: [ *pmd0, *pmd1, *pmd2 ]
+    tg: |
+        import time
+        packet=Ether(dst='00:00:00:00:00:aa', src='00:00:00:00:00:bb')/IP(src='122.35.92.248', dst='134.250.199.43')
+        packet /= UDP()/Raw('x'*1024)
+        frags=fragment(packet, 512)
+        print('IP fragment number is ' + str(len(frags)))
+    vm: |
+        sniff0=AsyncSniffer(iface=pf1vf0, filter='ip', prn=lambda x: print('CAPTURE: ' + pf1vf0 + ': '+ str(len(x))))
+        sniff1=AsyncSniffer(iface=pf1vf1, filter='ip', prn=lambda x: print('CAPTURE: ' + pf1vf1 + ': '+ str(len(x))))
+
+phase1: &phase1
+    name: ===== SEND FULL PACKET
+    vm: |
+        sniff0.start()
+    tg: |
+        time.sleep(1)
+        sendp(packet, iface=pf1, count=1, verbose=1)
+
+phase2: &phase2
+    name: ==== CHECK FULL PACKET
+    vm: |
+        res=sniff0.stop()
+        if len(res) == 1: print('capture packet')
+    result:
+        vm: 'capture packet'
+
+phase3: &phase3
+    name: ===== SEND FRAGMENTED PACKET
+    vm: |
+        sniff1.start()
+    tg: |
+        time.sleep(1)
+        sendp(frags[0], iface=pf1, count=1, verbose=1)
+        sendp(frags[1], iface=pf1, count=1, verbose=1)
+        sendp(frags[2], iface=pf1, count=1, verbose=1)
+
+phase4: &phase4
+    name: ==== CHECK FRAGMENTED PACKET
+    vm: |
+        res=sniff1.stop()
+        if len(res) == 3: print('capture fragment')
+    result:
+        vm: 'capture fragment'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase1, *phase2, *phase3, *phase4 ]
+    repeat: 1  

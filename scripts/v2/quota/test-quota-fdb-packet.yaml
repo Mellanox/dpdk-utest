@@ -1,0 +1,87 @@
+#### TEST
+setup:
+    hca: any
+    fw: any
+    hws: True
+    pf: [nic, fdb]
+    vf: [0, 2]
+    sf: [0, 0]
+
+prog: 'dpdk-testpmd -a pf1,dv_flow_en=2,representor=vf\[0,1\] -- -i'
+
+# port 0 is a PF,
+# ports 0, 1 - representors
+pmd0: &pmd0
+    command: |
+        show port summary all
+    result: '(^[12].*_representor.*){2}'
+
+pmd1: &pmd1
+    command: |
+        port stop all
+        flow configure 0 queues_number 4 queues_size 64 quotas_number 32 
+        flow configure 1 queues_number 4 queues_size 64 
+        flow configure 2 queues_number 4 queues_size 64 
+        port start all
+        set verbose 0
+        start
+    result: '(^Port [012]:.*) '
+
+pmd2: &pmd2
+    command: |
+        flow  queue 0 indirect_action 3 create ingress action_id 8 action quota_create limit 1800 mode packet / end
+        flow pull 0 queue 3
+        flow queue 0 indirect_action 3 query 8
+        flow pull 0 queue 3
+    result: 'unused quota: 1800'
+
+pmd3: &pmd3
+    command: |
+        flow actions_template 0 create transfer actions_template_id 1 template indirect / jump / end mask quota_create / jump group 0 / end
+        flow pattern_template 0 create transfer pattern_template_id 1 template eth / end
+        flow template_table 0 create table_id 1 transfer group 1 priority 0 rules_number 4 pattern_template 1 actions_template 1
+        flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions indirect 8 / jump group 2 / end
+        flow pull 0 queue 0
+        
+        flow pattern_template 0 create transfer pattern_template_id 2 template quota / end
+        flow actions_template 0 create transfer actions_template_id 2 template represented_port / end mask represented_port ethdev_port_id 0 / end
+        flow template_table 0 create table_id 2 transfer group 2 priority 0 rules_number 4 pattern_template 2 actions_template 2
+        flow queue 0 create 0 template_table 2 pattern_template 0 actions_template 0 postpone no pattern quota quota_state spec pass quota_state mask pass / end actions represented_port ethdev_port_id 1 / end
+        flow pull 0 queue 0
+        
+        flow pattern_template 0 create transfer pattern_template_id 0 template eth / ipv4 / udp / end
+        flow actions_template 0 create transfer actions_template_id 0 template jump / end mask jump group 0 / end
+        flow template_table 0 create table_id 0 transfer group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+        flow pull 0 queue 0
+    result: '(0 failed, 1 succeeded)(.*\1){2}'
+
+
+phase0: &phase0
+    name: config
+    pmd: [ *pmd0, *pmd1, *pmd2, *pmd3 ]
+    tg: |
+        p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+        sendp(p200, iface=pf1, count=21, verbose=1)
+
+phase1: &phase1
+    name: PHASE 1
+    pmd:
+        -
+            command: flow indirect_action 0 query 8
+            result: 'unused quota: 1779'
+
+phase2: &phase2
+    name: PHASE 2
+    tg: |
+        p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+        sendp(p200, iface=pf1, count=1810, verbose=0)
+    pmd:
+        -
+            command: flow indirect_action 0 query 8
+            result: 'unused quota: -1'
+
+flow:
+    -
+        phases: [ *phase0, *phase1, *phase2 ]
+        repeat: 1

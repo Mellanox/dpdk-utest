@@ -1,0 +1,111 @@
+# commit b3259edcf878bd73d0b23fbdebf183dc90096b78
+# Author: Dekel Peled <dekelp@nvidia.com>
+# Date:   Wed Oct 14 19:35:49 2020 +0300
+#
+#     app/testpmd: support IPv4 fragments
+#
+#     This patch updates testpmd CLI to support fragment_offset field of
+#     IPv4 header item.
+#
+#     To match on non-fragmented IPv4 packets, need to use pattern:
+#     ... ipv4 fragment_offset spec 0 fragment_offset mask 0x3fff ...
+#     To match on fragmented IPv4 packets, need to use pattern:
+#     ... ipv4 fragment_offset spec 1 fragment_offset last 0x3fff
+#     fragment_offset mask 0x3fff ...
+
+setup:
+  hca: any 
+  fw: any
+  hws: True
+  pf: [nic, nic]
+  vf: [0, 0]
+  sf: [0, 0]
+
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -- -i'
+
+pmd1: &pmd1
+    command: |
+        port stop all
+        flow configure 0 queues_number 4 queues_size 64
+        port start all
+        start
+        set verbose 1
+    result: '^Port 0:'
+
+pmd2: &pmd2
+    command: |
+        flow pattern_template 0 create ingress pattern_template_id 0 template eth / ipv4 / end
+        flow actions_template 0 create ingress actions_template_id 0 template jump / end mask jump / end
+        flow template_table 0 create ingress table_id 0 group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / end actions   jump group 1 / end
+        flow pull 0 queue 0
+
+        #non fragmented
+        flow pattern_template 0 create ingress pattern_template_id 10 template eth / ipv4 fragment_offset spec 0 fragment_offset mask 0x3fff / end
+        #fragmented
+        flow pattern_template 0 create ingress pattern_template_id 11 template eth / ipv4 fragment_offset spec 1 fragment_offset last 0x3fff fragment_offset mask 0x3fff / end
+        flow actions_template 0 create ingress actions_template_id 10 template mark / rss / end mask mark / rss / end
+        flow template_table 0 create ingress table_id 10 group 1 priority 0 rules_number 4 pattern_template 10  pattern_template 11 actions_template 10
+        
+        flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 fragment_offset spec 0 fragment_offset mask 0x3fff / end actions  mark id 0xaaa / rss  / end
+        flow pull 0 queue 0
+
+        flow queue 0 create 0 template_table 10 pattern_template 1 actions_template 0 postpone no pattern eth / ipv4 fragment_offset spec 1 fragment_offset last 0x3fff fragment_offset mask 0x3fff / end actions  mark id 0xbbb / rss  / end
+        flow pull 0 queue 0    
+    result: '(0 failed, 1 succeeded)(.*\1){2}'
+
+phase0: &phase0
+    name: ===== CONFIGURATION
+    pmd: [ *pmd1, *pmd2 ]
+    tg: |
+        packet=Ether(dst='00:00:00:00:00:aa', src='00:00:00:00:00:bb')/IP(src='122.35.92.248', dst='134.250.199.43')
+        packet /= UDP()/Raw('x'*1024)
+        frags=fragment(packet, 512)
+        print('IP fragment number is ' + str(len(frags)))
+
+phase1: &phase1
+    name: ===== SEND PACKET and TEST
+    tg: |
+        sendp(packet, iface=pf0)
+    result:
+        pmd: 'FDIR matched ID=0xaaa'    
+    
+phase2: &phase2
+    name: ===== SEND FRAG[0] and TEST
+    tg: |
+        sendp(frags[0], iface=pf0)
+    result:
+        pmd: 'FDIR matched ID=0xbbb'
+
+phase3: &phase3
+    name: ===== SEND FRAG[1] and TEST
+    tg: |
+        sendp(frags[1], iface=pf0)
+    result:
+        pmd: 'FDIR matched ID=0xbbb'
+
+phase4: &phase4
+    name: ===== SEND FRAG[2] and TEST
+    tg: |
+        sendp(frags[2], iface=pf0)
+    result:
+        pmd: 'FDIR matched ID=0xbbb'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase1, *phase2 ]
+    repeat: 1
+  -
+    phases: [ *phase1, *phase3 ]
+    repeat: 1
+  -
+    phases: [ *phase1, *phase4 ]
+    repeat: 1
+
+
+
+
+
