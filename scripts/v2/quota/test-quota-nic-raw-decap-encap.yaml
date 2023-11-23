@@ -1,0 +1,114 @@
+setup:
+  hca: any
+  fw: any
+  hws: True
+  pf: [nic, nic]
+  vf: [0, 0]
+  sf: [0, 0]
+
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -- -i'
+
+pmd0: &pmd0
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64 quotas_number 32
+    port start all
+    set verbose 1
+    start
+  result: '^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}'
+
+pmd1: &pmd1
+  command: |
+    set raw_decap 0 eth / end_set
+    set raw_encap 0 eth src is 11:22:33:44:55:66 dst is aa:bb:cc:dd:ee:aa type is 0x0800 has_vlan is 0 / ipv4 src is 1.1.1.1 dst is 2.2.2.2 ttl is 64 proto is 47 / gre protocol is 0x0800 / end_set
+    flow indirect_action 0 create ingress action_id 8 action quota_create limit 8000 mode l3 / end
+
+    flow actions_template 0 create egress actions_template_id 1 template indirect / raw_decap index 0 / raw_encap index 0 / end mask quota_create / raw_decap index 0 / raw_encap index 0 / end
+    flow pattern_template 0 create egress pattern_template_id 1 template eth / end
+    flow template_table 0 create table_id 1 egress group 1 priority 0 rules_number 4 pattern_template 1 actions_template 1
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions indirect 8  / raw_decap index 0 / raw_encap index 0 / end
+    flow pull 0 queue 0
+
+    # Jump out of the ROOT table
+    flow pattern_template 0 create egress pattern_template_id 0 template eth / ipv4 / udp / end
+    flow actions_template 0 create egress actions_template_id 0 template jump / end mask jump / end
+    flow template_table 0 create table_id 0 egress group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)(.*\1){1}'
+
+pmd2: &pmd2
+  command: |
+    set raw_decap 1 eth / ipv4 / gre / end_set
+    set raw_encap 1 eth src is 11:22:33:44:55:66 dst is aa:bb:cc:dd:ee:aa type is 0x0800 has_vlan is 0 / end_set
+
+    flow actions_template 0 create ingress actions_template_id 10 template raw_decap index 1 / raw_encap index 1 / indirect / rss / end mask raw_decap index 1 / raw_encap index 1 / quota_create / rss / end
+    flow pattern_template 0 create ingress pattern_template_id 10 template eth / end
+    flow template_table 0 create table_id 10 ingress group 1 priority 0 rules_number 4 pattern_template 10 actions_template 10
+    flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / end actions raw_decap index 1 / raw_encap index 1 / indirect 8 / rss / end
+    flow pull 0 queue 0
+
+    flow pattern_template 0 create ingress pattern_template_id 11 template eth / ipv4 / gre / end
+    flow actions_template 0 create ingress actions_template_id 11 template jump / end mask jump / end
+    flow template_table 0 create ingress table_id 11 group 0 priority 0 rules_number 4 pattern_template 11 actions_template 11
+    flow queue 0 create 0 template_table 11 pattern_template 0 actions_template 0 postpone no pattern eth /  ipv4 / gre / end actions jump group 1 / end
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)(.*\1){1}'  
+
+phase0: &phase0
+  name: CONFIG
+  pmd: [ *pmd0, *pmd1 ]
+  vm: |
+    p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+  tg: |
+    sniff = AsyncSniffer(iface=pf0, filter='vxlan', \
+                          prn=lambda x: print('CAPTURE: ' + x.command()))
+    sniff.start()
+
+phase1: &phase1
+  name: ENCAP and VERIFY
+  vm: |
+    print('SEND: ' + p200.command()) 
+    sendp(p200, iface=pf0)
+  pmd:
+    -
+      command: flow indirect_action 0 query 8
+      result: 'unused quota: 7800'
+  tg: |
+    time.sleep(.1)
+    cap = sniff.stop()
+    if len(cap[IP]) > 0: cap[IP][0][Ether].show
+  result:
+    tg: 'Ether  dst=aa:bb:cc:dd:ee:aa src=11:22:33:44:55:66.*GRE'
+
+phase2: &phase2
+  name: DECAP config
+  pmd: [ *pmd2 ]
+
+phase3: &phase3
+  name: DECAP send and verify
+  tg: |
+    print(f'SEND: {pf0}: ' + cap[IP][0].command())  
+    sendp(cap[IP][0], iface=pf0)
+    time.sleep(.1)
+  pmd:
+    -
+      command: flow indirect_action 0 query 8
+      result: 'unused quota: 7400'
+  result:
+    pmd: 'src=11:22:33:44:55:66 - dst=AA:BB:CC:DD:EE:AA'
+  
+
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+
+  -
+    phases: [ *phase1 ]
+    repeat: 1
+
+  -
+    phases: [ *phase2, *phase3]
+    repeat: 1  

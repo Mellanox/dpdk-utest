@@ -1,0 +1,74 @@
+pmd0: &pmd0
+    command: |
+        port stop all
+        flow configure 0 queues_number 4 queues_size 64 
+        port start all
+        set verbose 1
+        start
+        flow pattern_template 0 create ingress pattern_template_id 99 template eth / end
+        flow actions_template 0 create ingress actions_template_id 99 template  mark / rss / end mask mark id 0 / rss / end
+    result: '^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}'
+
+pmd1: &pmd1
+    command: |
+        flow pattern_template 0 create ingress pattern_template_id 0 template eth / vlan / end
+        flow actions_template 0 create ingress actions_template_id 0 template modify_field op set dst_type tag dst_level 0 dst_offset 0 src_type vlan_id src_offset 0 width 12 / jump / end mask modify_field op set dst_type tag dst_level 0xffffffff dst_offset 0xffffffff src_type vlan_id src_level 0xffffffff src_offset 0xffffffff  width 0xffffffff / jump group 0 / end
+        flow template_table 0 create table_id 0 group 10 priority 0 rules_number 4 pattern_template 0 actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / vlan / end actions modify_field op set dst_type tag dst_level 0 dst_offset 0 src_type vlan_id src_offset 0 width 12 / jump group 11 / end
+        flow pull 0 queue 0
+
+        flow template_table 0 create table_id 1 group 10 priority 3 rules_number 4 pattern_template 99 actions_template 99
+        flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end  actions mark id 0xf01 / rss  / end
+        flow pull 0 queue 0
+    result: '(0 failed, 1 succeeded)(.*\1){1}'
+
+pmd2: &pmd2
+    command: |
+        flow actions_template 0 create ingress actions_template_id 100 template jump / end mask jump group 0 / end
+        flow template_table 0 create table_id 100 group 0 priority 0 rules_number 4 pattern_template 0 actions_template 100
+        flow queue 0 create 0 template_table 100 pattern_template 0 actions_template 0 postpone no pattern eth / vlan / end actions jump group 10 / end
+        flow pull 0 queue 0
+
+        flow pattern_template 0 create ingress pattern_template_id 11 template tag data is 0x31 index is 0 / eth / end
+        flow actions_template 0 create ingress actions_template_id 11 template mark / rss / end mask mark id 0 / rss / end
+        flow template_table 0 create table_id 11 group 11 priority 0 rules_number 4 pattern_template 11 actions_template 11
+        flow queue 0 create 0 template_table 11 pattern_template 0 actions_template 0 postpone no pattern tag data is 0x31 index is 0 / eth / end actions mark id 0xaaa / rss / end
+        flow pull 0 queue 0
+
+        flow template_table 0 create table_id 12 group 11 priority 3 rules_number 4 pattern_template 99 actions_template 99
+        flow queue 0 create 0 template_table 12 pattern_template 0 actions_template 0 postpone no pattern eth / end  actions mark id 0xf02 / rss  / end
+        flow pull 0 queue 0
+    result: '(0 failed, 1 succeeded)(.*\1){2}'
+
+
+phase0: &phase0
+    name: '==== CONFIG ====='
+    pmd: [ *pmd0, *pmd1, *pmd2 ]
+    tg: |
+        p_ok=Ether(src='11:00:00:00:00:11', dst='aa:00:00:00:00:aa')/Dot1Q(vlan=0x31)/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+        p_nok=Ether(src='22:00:00:00:00:00', dst='bb:00:00:00:00:bb')/Dot1Q(vlan=0x11)/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*72)
+
+phase1: &phase1
+    name: '=== SEND & MATCH OK ==='
+    tg: sendp(p_ok, iface=if0)
+    result:
+        pmd: '(FDIR matched ID=0xaaa)'
+
+phase2: &phase2
+    name: '=== SEND & MATCH NOK ==='
+    tg: sendp(p_nok, iface=if0)
+    result:
+        pmd: '(FDIR matched ID=0xf02)'
+
+#### TEST
+#### FW version: 36.0214
+prog: 'dpdk-testpmd -a PORT_0,dv_flow_en=2 -- -i'
+
+flow:
+    -
+        phases: [ *phase0 ]
+        repeat: 1
+
+    -
+        phases: [ *phase1, *phase2 ]
+        repeat: 1

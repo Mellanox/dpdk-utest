@@ -1,0 +1,72 @@
+setup:
+    hca: any # [ any | mt<ID> ]
+    fw: any
+    hws: True
+    pf: [nic, nic]
+    vf: [0, 0]
+    sf: [0, 0]
+
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -- -i --rxq=4 --txq=4 --forward-mode=rxonly'
+
+pmd0: &pmd0
+    command: |
+        show port summary all
+    result: '^0.*mlx5_pci\s'
+
+pmd1: &pmd1
+    command: |
+        port stop all
+        flow configure 0 queues_number 4 queues_size 64
+        port start all
+        start
+        set verbose 1
+    result: '(^Port [0]:.*) '
+
+pmd2: &pmd2
+    command: |
+        set sample_actions 0 queue index 3 / end
+        set sample_actions 1 queue index 2 / end
+        flow indirect_action 0 create ingress list actions sample ratio 1 index 0 / sample ratio 1 index 1 / jump group 0xcaca / end
+    result: 'Indirect action #0 created'
+
+pmd3: &pmd3
+    command: |
+        flow pattern_template 0 create ingress pattern_template_id 0 template eth / ipv4 / udp / end
+        flow actions_template 0 create ingress actions_template_id 0 template mark / jump / end mask mark / jump group 0 / end
+        flow template_table 0 create table_id 0 ingress  group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions mark id 0x123 / jump group 1 / end
+        flow pull 0 queue 0
+
+        flow actions_template 0 create ingress actions_template_id 10 template indirect_list 0 / end mask indirect_list / end
+        flow template_table 0 create table_id 10 ingress group 1 priority 0 rules_number 4 pattern_template 0 actions_template 10
+        flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions indirect_list 0 / end
+        flow pull 0 queue 0
+
+        flow actions_template 0 create ingress actions_template_id 100 template mark / rss / end mask mark id 0 / rss / end
+        flow template_table 0 create table_id 100 ingress group 0xcaca priority 0 rules_number 4 pattern_template 0 actions_template 100
+        flow queue 0 create 0 template_table 100 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions mark id 0xaaa / rss / end
+        flow pull 0 queue 0
+    result: '(0 failed, 1 succeeded)(.*\1){2}'
+
+phase0: &phase0
+    name: ===== CONFIG ======
+    pmd: [ *pmd0, *pmd1, *pmd2, *pmd3 ]
+    tg: |
+        p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+
+phase1: &phase1
+    name: ====== SEND ===== VERIVY ========
+    tg:  |
+        sendp(p200, iface=pf0, count=1, verbose=1)
+    result:
+        pmd: '(Receive queue=0x[023].*){3}'
+
+flow:
+    -
+        phases: [ *phase0 ]
+        repeat: 1
+
+    -
+        phases: [ *phase1 ]
+        repeat: 1
+   

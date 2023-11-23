@@ -1,0 +1,36 @@
+dut:
+  host: pegasus30
+  username: root
+  password: 3tango
+  path: /opt/dpdk/mlnx_dpdk_22.11/build/app
+tg:
+  host: pegasus31
+  username: root
+  password: 3tango
+vm:
+  host: pegasus30
+  username: root
+  password: 3tango
+
+interfaces:
+  dut:
+    pf0: '0000:05:00.0'
+    pf1: '0000:05:00.1'
+    pf1vf0: '0000:05:01.2'
+    pf1vf1: '0000:05:01.3'
+    pf1vf2: '0000:05:01.4'
+    pf1vf3: '0000:05:01.5'
+  tg:
+    pf0: enp67s0f0np0
+    pf1: enp67s0f1np1
+  vm:
+    pf0: enp5s0f0np0
+    pf1: enp5s0f1np1
+    pf1rf0: enp5s0f1npf1vf0
+    pf1rf1: enp5s0f1npf1vf1
+    pf1rf2: enp5s0f1npf1vf2
+    pf1rf3: enp5s0f1npf1vf3
+    pf1vf0: enp5s0f1v0
+    pf1vf1: enp5s0f1v1
+    pf1vf2: enp5s0f1v2
+    pf1vf3: enp5s0f1v3

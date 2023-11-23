@@ -1,0 +1,119 @@
+c0: &c0
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64 quotas_number 32 
+    port start all
+    set verbose 1
+    start
+  result: '^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}'
+
+c1: &c1
+  command: |
+    flow  queue 0 indirect_action 3 create ingress action_id 8 action quota_create limit 18000 mode l3 / end
+    flow pull 0 queue 3
+    flow queue 0 indirect_action 3 query 8
+    flow pull 0 queue 3
+  result: 'unused quota: 18000'
+
+c2: &c2
+  command: |
+    flow actions_template 0 create egress actions_template_id 1 template indirect / jump / end mask quota_create / jump group 0 / end
+    flow pattern_template 0 create egress pattern_template_id 1 template eth / end
+    flow template_table 0 create table_id 1 egress group 1 priority 0 rules_number 4 pattern_template 1 actions_template 1
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions indirect 8 / jump group 2 / end
+    flow pull 0 queue 0
+    
+    flow pattern_template 0 create egress pattern_template_id 2 template quota / end
+    flow actions_template 0 create egress actions_template_id 2 template drop / end mask drop / end
+    flow template_table 0 create table_id 2 egress group 2 priority 0 rules_number 4 pattern_template 2 actions_template 2
+    flow queue 0 create 0 template_table 2 pattern_template 0 actions_template 0 postpone no pattern quota quota_state spec block quota_state mask block / end actions drop / end
+    flow pull 0 queue 0
+    
+    flow pattern_template 0 create egress pattern_template_id 0 template eth / ipv4 / udp / end
+    flow actions_template 0 create egress actions_template_id 0 template jump / end mask jump group 0 / end
+    flow template_table 0 create table_id 0 egress group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)(.*\1){2}'
+
+p0: &phase0
+  name: config
+  pmd: [ *c0, *c1, *c2 ]
+  vm: |
+    p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+    f = lambda x:x.sprintf("Ether(dst=%Ether.dst%, src=%Ether.src%)/IP(dst=%IP.dst%, src=%IP.src%)/UDP(dport=%UDP.dport%, sport=%UDP.sport%)")
+  tg: |
+    from time import sleep
+    sniff = AsyncSniffer(iface=pf0, filter='udp and src port 1234', \
+                         prn=lambda x: print('CAPTURE: ' + x.summary()))
+    sniff.start()
+
+p1: &phase1
+  name: send and match
+  vm: |
+    sendp(p200, iface=pf0)
+  pmd:
+      -
+        command: |
+          flow indirect_action 0 query 8
+        result: null
+  tg: |
+    time.sleep(.1)
+    cap = sniff.stop()
+    if len(cap[UDP]) > 0: cap[UDP][0][Ether].show
+  result:
+    pmd: 'unused quota: 17800'
+    tg: 'Ether  dst=aa:bb:cc:dd:ee:aa src=11:22:33:44:55:66 type=IPv4'
+
+c2: &c3
+  command: |
+    flow indirect_action 0 update 8 action quota_update limit 150 update_op set / end
+    flow indirect_action 0 update 8 action quota_update limit 150 update_op add / end
+    flow indirect_action 0 query 8
+  result: 'unused quota: 300'
+
+phase2: &phase2
+  name: TX quota apply
+  tg: |
+    from time import sleep
+    sniff = AsyncSniffer(iface=pf0, filter='udp and src port 1234',  \
+                         prn=lambda x: print('CAPTURE: ' + x.summary()))
+    sniff.start()
+  pmd: [ *c3 ]
+  vm: |
+    sendp(p200, iface=pf0, count=3)
+
+phase3: &phase3
+  name: TX quota 1
+  tg: |
+    time.sleep(.1)
+    cap = sniff.stop()
+    res = 'SUCCESS' if len(cap[UDP]) == 2 else 'FAILURE: ' + len(cap[UDP])
+    print(res)
+  result:
+    tg: 'SUCCESS'
+
+
+#### TEST
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -- -i'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+
+  -
+    phases: [ *phase1 ]
+    repeat: 1
+
+  -
+    phases: [ *phase2, *phase3 ]
+    repeat: 1
+
+setup:
+  hca: any # [ any | mt<ID> ]
+  fw: any
+  hws: True
+  pf: [nic, nic]
+  vf: [0, 0]
+  sf: [0, 0]

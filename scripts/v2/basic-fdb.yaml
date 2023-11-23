@@ -1,0 +1,66 @@
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    show port summary all
+  result: (^\d\s{1,}([0-9A-F]{2}:){5}[0-9A-F].*){3}
+
+pmd2: &pmd2
+  command: |
+    flow create 0 transfer pattern eth / ipv4 / udp / end actions mark id 0xaa / jump group 1 / end
+    flow create 0 group 1 transfer pattern eth / end actions of_push_vlan ethertype 0x8100 / of_set_vlan_vid vlan_vid  3103 / of_set_vlan_pcp vlan_pcp 0 / port_id id 1 / end
+  result: (Flow rule \#\d created.*){2}  
+
+
+phase0: &phase0
+  name: configuration
+  vm: |
+    from time import sleep
+    sniff = AsyncSniffer(iface=pf1vf0, filter='udp and src port 1234', \
+                         prn=lambda x: print('CAPTURE: ' + x.summary()))
+  tg: |
+    udp_packet = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_packet /= UDP(sport=1234, dport=5678)/Raw('== TEST ==')
+  pmd: [ *pmd0, *pmd1, *pmd2 ]
+
+phase1: &phase1
+  name: VM setup and TG send
+  vm: |
+    sniff.start()
+  tg: |
+    sendp(udp_packet, iface=pf1)
+
+phase2: &phase2
+  name: VM check input
+  vm: |
+    time.sleep(.1)
+    cap = sniff.stop()
+    if len(cap[UDP]) > 0: cap[UDP][0][Ether].command()
+  result:
+    vm: vlan=3103
+
+
+######
+prog: dpdk-testpmd -a pf1,representor=vf\[0,1\],dv_xmeta_en=1 --  -i
+
+
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase1, *phase2 ]
+    repeat: 2
+
+setup:
+  hca: any # [ any | mt<ID> ]
+  fw: any
+  hws: False
+  pf: [nic, fdb]
+  vf: [0, 2]
+  sf: [0, 0]
