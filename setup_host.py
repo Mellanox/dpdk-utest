@@ -39,7 +39,7 @@ def setup_dut(test_conf:dict, dut_conf:dict, flags = 0) -> str:
     utest_logger.info(_log)
 
     if 'hws' in test_conf.keys() and test_conf['hws'] == True:
-        dut.config_hws(mt_dev)
+        if (False): dut.config_hws(mt_dev)
         dut.connect()
 
     if 'vf' in test_conf.keys():
