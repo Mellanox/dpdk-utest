@@ -1,0 +1,71 @@
+pmd-prime:
+    agent: testpmd
+    cmd: 'dpdk-testpmd --file-prefix prime -a pci0,representor=vf[0-1] --proc-type primary -- -i'
+    setup:
+        domain: [ fdb, nic ]
+        vf: [ 2, 0 ]
+        sf: [ 0, 0 ]
+
+pmd-second:
+    agent: testpmd
+    cmd: 'dpdk-testpmd --file-prefix second -a pci0vf0 --proc-type primary -- -i --rxq=4 --txq=4'
+
+tg-scapy:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+var1: &ref_var1
+  command: |
+    flow create 0 transfer pattern eth / ipv4 / udp / end actions port_id id 1 / end
+  result: (Flow rule \#\d created.*)
+
+var2: &ref_var2
+  command: |
+    flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions queue index 1 / end
+    flow create 0 ingress pattern eth / ipv4 / udp src is 102 / end actions queue index 2 / end
+    flow create 0 ingress pattern eth / ipv4 / udp src is 103 / end actions queue index 3 / end
+  result: (Flow rule \#\d created.*){2}
+
+phase0: &phase0
+  name: CONFIGURATION
+  tg-scapy: |
+    udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+    udp_102 = udp_101.copy()
+    udp_103 = udp_101.copy()
+    udp_102[UDP].sport = 102
+    udp_103[UDP].sport = 103
+  pmd-prime: [ *ref_var0, *ref_var1 ]
+  pmd-second: [ *ref_var0, *ref_var2 ]
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  tg-scapy: sendp(udp_101, iface=pf0)
+  result:
+    pmd-second: '- RSS queue=0x1 -'
+
+phase102: &phase102
+  name: SENT and CHECK queue 2
+  tg-scapy: sendp(udp_102, iface=pf0)
+  result:
+    pmd-second: '- RSS queue=0x2 -'
+
+phase103: &phase103
+  name: SENT and CHECK queue 3
+  tg-scapy: sendp(udp_103, iface=pf0)
+  result:
+    pmd-second: '- RSS queue=0x3 -'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101, *phase102, *phase103 ]
+    repeat: 1
+   
