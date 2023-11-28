@@ -1,0 +1,4 @@
+#! /bin/sh
+
+. $PYENV/bin/activate
+python3 -i -c 'from remote_ops import *'
