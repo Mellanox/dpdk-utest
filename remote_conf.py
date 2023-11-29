@@ -139,5 +139,19 @@ class UtestData:
         return data
 
     def show_commands(self):
+        agents = { app: conf for app, conf in self.cmds.items() if 'agent' in self.cmds[app] }
+        agents = { app: conf for app, conf in sorted(agents.items(), key=lambda x: x[1]['agent'], reverse=True)}
+        for app, data in agents.items(): self.show_app_commands(app, data)
         return
 
+    def show_app_commands(self, app:str, data:dict):
+        print(f'=========== {app}')
+
+        if 'cmd' in data.keys(): print('COMMAND: ' + data['cmd'] + '\n')
+
+        for item in self.cmds['flow']:
+            for phase in item['phases']:
+                if not app in phase.keys(): continue
+                if isinstance(phase[app], str): print(phase[app])
+                elif isinstance(phase[app], list):
+                    for cmd in phase[app]: print(cmd['command'])
