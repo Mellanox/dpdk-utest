@@ -73,8 +73,9 @@ class RCmd:
         self.output = ''
         self.stdin.write(command + '\n')
         self.stdin.flush()
-        if 'check_proc' in kwargs.keys() and kwargs['check_proc']() is False:
-            raise RCmdError('killer command:\n' + command)
+        if 'check_proc' in kwargs.keys() and not kwargs['check_proc']():
+            utest_logger.info('killer command: ' + command)
+            exit(-1)
         self.rdout()
 
     def match_str(self, expected:str) -> bool:
@@ -106,18 +107,30 @@ class RCmd:
 class TestPMD(RCmd):
     ctrl = None
 
+    def is_alive(self) -> bool:
+        res = re.search('--file-prefix(\s){1,}(\S){1,}', self.cmd)
+        if res is None: lock='/run/dpdk/rte/config'
+        else: lock = '/run/dpdk/' + res.group(0).split()[1]
+        output = self.ctrl.rsh['lslocks']['-u', '-o', 'COMMAND,PATH']()
+        res = re.search('^dpdk-testpmd(\s){1,}' + lock, output, re.DOTALL|re.MULTILINE)
+        return res is not None
+
     def __init__(self, data:UtestData, app_id:str):
         self.delim = '###'
         self.name = f'{app_id}> '
+        self.cmd = data.cmds[app_id]['cmd']
 
         host = data.conf[app_id]['host']
         self.ctrl = RemoteOps(host, **data.ssh_params).connect()
+        if self.is_alive():
+            utest_logger.error(f'{self.name}Enother testpmd process is running')
+            exit(-1)
 
-        cmd = data.cmds[app_id]['cmd']
+
         # sort interface keys according to length to prevent partial match
         pci_map = OrderedDict(sorted(data.interfaces[host]['pci'].items(), reverse=True, key=lambda t: len(t[0])))
-        for pci_id, pci in pci_map.items(): cmd = re.sub(pci_id, pci, cmd)
-        cmd = data.conf[app_id]['path'] + '/' + cmd + ' 2>&1'
+        for pci_id, pci in pci_map.items(): self.cmd = re.sub(pci_id, pci, self.cmd)
+        cmd = data.conf[app_id]['path'] + '/' + self.cmd + ' 2>&1'
         utest_logger.info(f'{self.name} connecting to ' + host)
         RCmd.__init__(self, host, prog=cmd, **data.ssh_params)
         super().execute('show port summary all')
@@ -134,8 +147,11 @@ class TestPMD(RCmd):
     # { 'command': <string>, 'result': <string> | None }
     #
     def execute(self, commands:list):
+        if not self.is_alive():
+            utest_logger.error(f'{self.name} testpmd is dead')
+            exit(-1)
         for cmd in commands:
-            super().execute(cmd['command'])
+            super().execute(cmd['command'], check_proc=self.is_alive)
             if cmd['result'] is not None: self.match(cmd['result'])
 
 
