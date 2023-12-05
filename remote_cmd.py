@@ -82,15 +82,20 @@ class RCmd:
         pattern = r'{}'.format(expected)
         utest_logger.debug('\n>>>>>\n'+pattern+'\n<<<<<')
         res = re.search(pattern, self.output, re.DOTALL|re.MULTILINE)
-        return not res is None
+        if res is None: return False
+        self.output = self.output[res.span()[1]:]
+        return True
 
     def match_dict(self, expected:dict) -> bool:
         for key in expected.keys():
             if key == 'all':
                 for p in expected[key]:
                     if not self.match_str(p): return False
+                return True
             if key == 'some':
+                for p in expected[key]:
                     if self.match_str(p): return True
+                return False
 
     def match(self, expected:Union[str, dict]):
         self.rdout()
