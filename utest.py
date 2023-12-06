@@ -47,9 +47,8 @@ if __name__ == "__main__":
     if cl.args.hosts is None: exit(0)
     data.conf = data.import_yaml(cl.args.hosts)
 
-    if cl.args.fast:
-        data.interfaces = data.conf.pop('interfaces')
-    else:
+    data.interfaces = data.conf.pop('interfaces', {})
+    if not cl.args.fast:
         data.remove_old_netconfig(cl.args.hosts)
         data.configure()
         data.update_config_file(cl.args.hosts, data.interfaces)
