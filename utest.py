@@ -67,7 +67,7 @@ if __name__ == "__main__":
         for item in data.cmds['flow']:
             repeat = item['repeat'] if 'repeat' in item else 1
             for i in range(0, repeat):
-                for phase in item['phases']: do_phase(agents, phase)
+                for phase in item['phases']: do_phase(agents, phase.copy())
         utest_logger.info('TEST COMPLETED')
     except Exception as e:
         utest_logger.error("Test failed: ", str(e.cmd))
