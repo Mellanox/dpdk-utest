@@ -1,0 +1,38 @@
+dut:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0 -- -i --rxq=4 --txq=4'
+
+tg:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from \d{1,} to 1'
+
+var1: &ref_var1
+  command: |
+    flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions queue index 1 / end
+  result: 'Flow rule #0 created'
+
+phase0: &ref_phase0
+    name: CONFIGURATION
+    tg: |
+        udp_pkt = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+        udp_pkt /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+    dut: [ *ref_var0, *ref_var1 ]
+
+phase1: &ref_phase1
+    name: SEND and VALIDATE
+    tg: sendp(udp_pkt, iface=pf0)
+    result:
+        dut: '- RSS queue=0x1 -'
+
+flow:
+    -
+        phases: [ *ref_phase0 ]
+        repeat: 1
+    -
+        phases: [ *ref_phase1 ]
+        repeat: 3
