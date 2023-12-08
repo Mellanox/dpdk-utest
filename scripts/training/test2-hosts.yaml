@@ -1,0 +1,29 @@
+esw:
+  host: pegasus30
+  path: /opt/dpdk/mlnx_dpdk_22.11/build/app
+vm:
+  host: pegasus30
+  path: /opt/dpdk/mlnx_dpdk_22.11/build/app
+tg-scapy: 
+  host: pegasus31
+interfaces:
+  pegasus30:
+    netdev:
+      pf0: enp5s0f0np0
+      pf0rf0: enp5s0f0npf0vf0
+      pf0rf1: enp5s0f0npf0vf1
+      pf0vf0: enp5s0f0v0
+      pf0vf1: enp5s0f0v1
+      pf1: enp5s0f1np1
+    pci:
+      pci0: '0000:05:00.0'
+      pci0vf0: '0000:05:00.2'
+      pci0vf1: '0000:05:00.3'
+      pci1: '0000:05:00.1'
+  pegasus31:
+    netdev:
+      pf0: enp67s0f0np0
+      pf1: enp67s0f1np1
+    pci:
+      pci0: '0000:43:00.0'
+      pci1: '0000:43:00.1'

@@ -1,0 +1,121 @@
+esw-a:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf[0-1] -- -i'
+    setup:
+        domain: [ fdb, nic ]
+        vf: [ 2, 0 ]
+
+esw-b:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf[0-1] -- -i'
+    setup:
+        domain: [ fdb, nic ]
+        vf: [ 2, 0 ]
+
+vm-a:
+    agent: scapy
+
+vm-b:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64
+    flow configure 1 queues_number 4 queues_size 64
+    flow configure 2 queues_number 4 queues_size 64
+    port start all
+    start
+    set verbose 1
+  result: { 'all': ['^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
+                    '^Port 1: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
+                    '^Port 2: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
+                    'Change verbose level from \d{1,} to 1']}
+
+esw-a-var: &ref-esw-a-var
+  command: |
+    flow pattern_template 0 create transfer pattern_template_id 0 template eth / ipv4 / end 
+    flow actions_template 0 create transfer actions_template_id 0 template represented_port / end mask represented_port / end
+    flow template_table 0 create table_id 0 transfer group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / end actions represented_port ethdev_port_id 1 / end
+    flow pull 0 queue 0
+      
+    flow pattern_template 0 create transfer pattern_template_id 10 template represented_port ethdev_port_id mask 0xffff / eth / ipv6 / end
+    flow actions_template 0 create transfer actions_template_id 10 template represented_port / end mask represented_port / end
+    flow template_table 0 create table_id 10 transfer group 0 priority 0 rules_number 4 pattern_template 10 actions_template 10
+    flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern represented_port ethdev_port_id spec 1 / eth / ipv6 / end actions represented_port ethdev_port_id 0 / end
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)(.*\1){1}'
+
+esw-b-var: &ref-esw-b
+  command: |
+    flow pattern_template 0 create transfer pattern_template_id 0 template eth / ipv6 / end 
+    flow actions_template 0 create transfer actions_template_id 0 template represented_port / end mask represented_port / end
+    flow template_table 0 create table_id 0 transfer group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv6 / end actions represented_port ethdev_port_id 1 / end
+    flow pull 0 queue 0
+      
+    flow pattern_template 0 create transfer pattern_template_id 10 template represented_port ethdev_port_id mask 0xffff / eth / ipv4 / end
+    flow actions_template 0 create transfer actions_template_id 10 template represented_port / end mask represented_port / end
+    flow template_table 0 create table_id 10 transfer group 0 priority 0 rules_number 4 pattern_template 10 actions_template 10
+    flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern represented_port ethdev_port_id spec 1 / eth / ipv4 / end actions represented_port ethdev_port_id 0 / end
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)(.*\1){1}'
+
+phase0: &phase0
+  name: CONFIGURATION
+  esw-a: [ *ref_var0, *ref-esw-a-var ]
+  esw-b: [ *ref_var0, *ref-esw-b ]
+  vm-a: |
+    udp_a = Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IPv6(src='::aaaa', dst='::bbbb')
+    udp_a /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+    sniff=AsyncSniffer(iface=pf0vf0, filter='udp', prn=lambda x: print('CAPTURE A: ' + pf0vf0 + ': '+ x.command()))
+  vm-b: |
+    udp_b = Ether(src='cc:00:00:00:00:cc', dst='dd:00:00:00:00:dd')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_b /= UDP(sport=202, dport=5678)/Raw('== TEST ==')
+    sniff=AsyncSniffer(iface=pf0vf0, filter='udp', prn=lambda x: print('CAPTURE B: ' + pf0vf0 + ': '+ x.command()))
+
+phase-a-b-1: &ref-phase-a-b-1
+  name: SEND A to B
+  vm-b: sniff.start()
+  vm-a: |
+    sniff.start()
+    time.sleep(1)
+    sendp(udp_a, iface=pf0vf0)
+
+phase-a-b-2: &ref-phase-a-b-2
+  name: VALIDATE SEND A to B
+  vm-a: sniff.stop()
+  vm-b:
+    time.sleep(1)
+    sniff.stop()
+  result:
+    vm-b: {'all': ['CAPTURE B:', "dst='bb:00:00:00:00:bb', src='aa:00:00:00:00:aa'"]}
+
+phase-b-a-1: &ref-phase-b-a-1
+  name: SEND B to A
+  vm-a: sniff.start()
+  vm-b: |
+    sniff.start()
+    time.sleep(1)
+    sendp(udp_b, iface=pf0vf0)
+
+phase-b-a-2: &ref-phase-b-a-2
+  name: VALIDATE SEND B to A
+  vm-b: sniff.stop()
+  vm-a: |
+    time.sleep(1)
+    sniff.stop()
+  result:
+    vm-a: {'all': ['CAPTURE A', "dst='dd:00:00:00:00:dd', src='cc:00:00:00:00:cc'"]}
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *ref-phase-a-b-1, *ref-phase-a-b-2 ]
+    repeat: 1
+  -
+    phases: [ *ref-phase-b-a-1, *ref-phase-b-a-2 ]
+    repeat: 1
