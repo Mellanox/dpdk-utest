@@ -61,12 +61,12 @@ class RCmd:
         time.sleep(.1)
         while True:
             line = self.stdout.readline()
-            if len(line) > 1:
-                if re.search(self.delim, line) is None:
-                    utest_logger.info(self.name + line.strip())
-                    self.output += line
-                else:
-                    break
+            if len(line) == 0: continue
+            if re.search(self.delim, line) is None:
+                utest_logger.info(self.name + line.strip())
+                self.output += line
+            else:
+                break
 
 
     def execute(self, command:str, **kwargs):

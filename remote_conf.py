@@ -51,6 +51,7 @@ class UtestData:
         old_conf = False
         new_lines = []
         for line in data.split('\n'):
+            if len(line) == 0: continue
             if re.search('^interfaces:', line) is not None:
                 old_conf = True
             elif old_conf and re.search('^\s', line) is not None:
