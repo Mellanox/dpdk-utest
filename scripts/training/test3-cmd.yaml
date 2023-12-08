@@ -86,7 +86,7 @@ phase-a-b-1: &ref-phase-a-b-1
 phase-a-b-2: &ref-phase-a-b-2
   name: VALIDATE SEND A to B
   vm-a: sniff.stop()
-  vm-b:
+  vm-b: |
     time.sleep(1)
     sniff.stop()
   result:
