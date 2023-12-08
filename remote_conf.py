@@ -2,6 +2,7 @@
 
 import re
 import yaml
+import time
 import argparse
 from remote_ops import *
 
@@ -62,7 +63,8 @@ class UtestData:
         f.close()
 
     def select_mt_dev(self):
-        host = list(self.conf.keys())[0]['host']
+        app = list(self.conf.keys())[0]
+        host = self.conf[app]['host']
         mt_db = self.remotes[host]['ops'].dev_db
         self.mt_dev = list(mt_db.keys())[0]
 
@@ -91,12 +93,38 @@ class UtestData:
                 setup = self.cmds[app]['setup']
                 utest_logger.info(f'configure {host} for {app}')
                 self.configure_host(self.remotes[host], setup)
+    def reset_host_state(self, remote: dict) -> RemoteOps:
+        ops = remote['ops']
+        host = ops.rhost
+        mt_dev = self.mt_dev
+        if not ops.cloud_host():
+            if not ops.fw_reset(mt_dev):
+                _log = f'{ops.rhost}: failed to reset FW mst_dev {mt_dev}'
+                utest_logger.error(_log)
+                exit(-1)
+            return ops
+        # FW reset on cloud hosts is unreliable.
+        # reboot is faster and saver
+        ops.reboot()
+        ssh_params = self.ssh_params.copy()
+        ssh_params['connect_timeout'] = 30
+        for attempt in list(range(0,5)):
+            try:
+                time.sleep(1 + 0.5 * attempt)
+                remote['ops'] = RemoteOps(host, **ssh_params).connect()
+            except Exception as e:
+                remote['ops'] = None
+                pass
+        if remote['ops'] is None:
+            utest_logger.error(f'Cannot reconnect to {host}')
+            exit(-1)
+        return remote['ops']
+
 
     def configure_host(self, remote: dict, setup: dict):
-        ops = remote['ops']
+        ops = self.reset_host_state(remote)
         mt_dev = self.mt_dev
         _log = f'{ops.rhost}: mst_dev {mt_dev}'
-        ops.fw_reset(mt_dev)
         utest_logger.info(_log)
         if 'vf' in setup.keys():
             for port_id, vf_config in enumerate(setup['vf']):
@@ -104,6 +132,7 @@ class UtestData:
         for port_id, dom in enumerate(setup['domain']):
             if dom == 'fdb':
                 ops.config_fdb(mt_dev, port_id)
+        ops.config_huge_pages(1024)
 
     def host_interfaces(self, remote:dict, interfaces:dict):
         ops = remote['ops']

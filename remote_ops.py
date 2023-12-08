@@ -23,6 +23,7 @@ class RemoteOps:
         self.user = kwargs['username'] if 'username' in kwargs.keys() else None
         self.password = kwargs['password'] if 'password' in kwargs.keys() else None
         self.keyfile = kwargs['keyfile'] if 'keyfile' in kwargs.keys() else None
+        self.connect_timeout = kwargs['connect_timeout'] if 'connect_timeout' in kwargs.keys() else 10
 
     def sysfs_config(self, sysfs_file:str, token:str):
         self.rsh['sh']['-c', f'echo {token} > {sysfs_file}']()
@@ -30,17 +31,11 @@ class RemoteOps:
     def connect(self):
         if self.rsh is not None: return self
         utest_logger.debug('trying to connect to: ' + str(self.rhost))
-        try:
-            self.rsh = SshMachine(host=self.rhost, user=self.user,
-                                  password=self.password, keyfile=self.keyfile,
-                                  connect_timeout=3)
-        except Exception as e:
-            utest_logger.error('connection error: ' + str(type(e)))
-            exit(1)
-        finally:
-            self.mst_status()
-            print(self.dev_db)
-            return self
+        self.rsh = SshMachine(host=self.rhost, user=self.user,
+                              password=self.password, keyfile=self.keyfile,
+                              connect_timeout=self.connect_timeout, new_session=True)
+        self.mst_status()
+        return self
 
     def disconnect(self):
         if self.rsh is not None:
@@ -52,7 +47,11 @@ class RemoteOps:
         return re.search('workspace', out) is not None
 
     def reboot(self):
-        self.rsh['reboot']()
+        utest_logger.warning(f'Reboot {self.rhost}')
+        try:
+            self.rsh['reboot']()
+        except Exception as e:
+            pass
         self.rsh = None
 
     def fw_reset_cloud_host(self):
@@ -112,6 +111,7 @@ class RemoteOps:
             if re.match('\d{4}:\d{2}:\d{2}.\d', pci) is None:
                 pci = '0000:' + pci
             self.dev_db[dev][port] = pci
+        utest_logger.debug(f'{self.rhost} {self.dev_db}')
         return self.dev_db
 
     def show_vf(self, mt:str, port:int) -> list:
