@@ -149,12 +149,15 @@ class UtestData:
         for pf_id, pf_pci in enumerate(mt_db[mt_dev]):
             pf_key = f'pf{pf_id}'
             netdev[pf_key] = ops.pci_to_netdev(pf_pci)
+            ops.link_up(netdev[pf_key])
             for vf_id, vf_pci in enumerate(ops.show_vf(mt_dev, pf_id)):
                 vf_key = f'{pf_key}vf{vf_id}'
                 netdev[vf_key] = ops.pci_to_netdev(vf_pci)
+                ops.link_up(netdev[vf_key])
             for rep_id, rep in enumerate(ops.show_port_representors(mt_dev, pf_id)):
                 rep_key = f'{pf_key}rf{rep_id}'
                 netdev[rep_key] = rep
+                ops.link_up(netdev[rep_key])
 
     def remote_interfaces(self):
         for host in set(self.remotes.keys()):
