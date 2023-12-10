@@ -3,6 +3,7 @@
 import paramiko
 import time, re
 import logging
+import copy
 from remote_ops import RemoteOps
 from remote_conf import UtestData
 from typing import Union
@@ -79,28 +80,39 @@ class RCmd:
         self.rdout()
 
     def match_str(self, expected:str) -> bool:
+        output = copy.copy(self.output)
         pattern = r'{}'.format(expected)
         utest_logger.debug('\n>>>>>\n'+pattern+'\n<<<<<')
-        res = re.search(pattern, self.output, re.DOTALL|re.MULTILINE)
+        res = re.search(pattern, output, re.DOTALL|re.MULTILINE)
         if res is None: return False
-        self.output = self.output[res.span()[1]:]
+        output = output[res.span()[1]:]
         return True
 
     def match_dict(self, expected:dict) -> bool:
-        for key in expected.keys():
-            if key == 'all':
-                for p in expected[key]:
-                    if not self.match_str(p): return False
-                return True
-            if key == 'some':
-                for p in expected[key]:
-                    if self.match_str(p): return True
-                return False
+        key = list(expected.keys())[0]
+        if key == 'and':
+            for p in expected[key]:
+                if not self.match_str(p): return False
+            return True
+        elif key == 'or':
+            for p in expected[key]:
+                if self.match_str(p): return True
+            return False
+        elif key == 'not':
+            for p in expected[key]:
+                if self.match_str(p): return False
+            return True
 
-    def match(self, expected:Union[str, dict]):
+    def match_list(self, expected:list) -> bool:
+        for e in expected:
+            if not self.match_dict(e): return False
+        return True
+
+    def match(self, expected:Union[str, dict, list]):
         self.rdout()
         if isinstance(expected, str): verdict = self.match_str(expected)
         elif isinstance (expected, dict): verdict = self.match_dict(expected)
+        elif isinstance(expected, list): verdict = self.match_list(expected)
         else: verdict = False
         if not verdict:
             raise RCmdError('\n=== match failed\nexpected ' + str(expected) + '\noutput: ' + self.output)

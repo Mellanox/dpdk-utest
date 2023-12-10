@@ -23,7 +23,13 @@ interfaces:
   pegasus31:
     netdev:
       pf0: enp67s0f0np0
+      pf0rf0: eth0
+      pf0rf1: eth1
+      pf0vf0: enp67s0f0v0
+      pf0vf1: enp67s0f0v1
       pf1: enp67s0f1np1
     pci:
       pci0: '0000:43:00.0'
+      pci0vf0: '0000:43:00.2'
+      pci0vf1: '0000:43:00.3'
       pci1: '0000:43:00.1'

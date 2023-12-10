@@ -27,7 +27,7 @@ var0: &ref_var0
     port start all
     start
     set verbose 1
-  result: { 'all': ['^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
+  result: { 'and': ['^Port 0: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
                     '^Port 1: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
                     '^Port 2: ([0-9A-F]{2}:){5}[0-9A-F]{2}',
                     'Change verbose level from \d{1,} to 1']}
@@ -90,7 +90,11 @@ phase-a-b-2: &ref-phase-a-b-2
     time.sleep(1)
     sniff.stop()
   result:
-    vm-b: {'all': ['CAPTURE B:', "dst='bb:00:00:00:00:bb', src='aa:00:00:00:00:aa'"]}
+    vm-b:
+      -
+        {'and': ['CAPTURE B:', "dst='bb:00:00:00:00:bb', src='aa:00:00:00:00:aa'"]}
+      -
+        {'not': ['CAPTURE A:', "dst='dd:00:00:00:00:dd', src='cc:00:00:00:00:cc'"]}
 
 phase-b-a-1: &ref-phase-b-a-1
   name: SEND B to A
@@ -107,7 +111,7 @@ phase-b-a-2: &ref-phase-b-a-2
     time.sleep(1)
     sniff.stop()
   result:
-    vm-a: {'all': ['CAPTURE A', "dst='dd:00:00:00:00:dd', src='cc:00:00:00:00:cc'"]}
+    vm-a: {'and': ['CAPTURE A:', "dst='dd:00:00:00:00:dd', src='cc:00:00:00:00:cc'"]}
 
 flow:
   -

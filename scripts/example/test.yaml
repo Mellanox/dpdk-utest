@@ -29,7 +29,7 @@ var2: &ref_var2
     flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions queue index 1 / end
     flow create 0 ingress pattern eth / ipv4 / udp src is 102 / end actions queue index 2 / end
     flow create 0 ingress pattern eth / ipv4 / udp src is 103 / end actions queue index 3 / end
-  result: { 'all': [ 'Flow rule #0 created', 'Flow rule #1 created', 'Flow rule #2 created'] }
+  result: { 'and': [ 'Flow rule #0 created', 'Flow rule #1 created', 'Flow rule #2 created'] }
 
 phase0: &phase0
   name: CONFIGURATION

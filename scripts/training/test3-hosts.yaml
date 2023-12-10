@@ -8,7 +8,6 @@ vm-a:
   host: pegasus30
 vm-b:
   host: pegasus31
-
 interfaces:
   pegasus30:
     netdev:

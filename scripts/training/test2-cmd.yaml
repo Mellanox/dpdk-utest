@@ -28,7 +28,7 @@ var2: &ref_var2
     flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions queue index 1 / end
     flow create 0 ingress pattern eth / ipv4 / udp src is 102 / end actions queue index 2 / end
     flow create 0 ingress pattern eth / ipv4 / udp src is 103 / end actions queue index 3 / end
-  result: { 'all': [ 'Flow rule #0 created', 'Flow rule #1 created', 'Flow rule #2 created'] }
+  result: { 'and': [ 'Flow rule #0 created', 'Flow rule #1 created', 'Flow rule #2 created'] }
 
 phase0: &phase0
   name: CONFIGURATION
@@ -42,29 +42,19 @@ phase0: &phase0
   esw: [ *ref_var0, *ref_var1 ]
   vm: [ *ref_var0, *ref_var2 ]
 
-phase101: &phase101
-  name: SENT and CHECK queue 1
-  tg-scapy: sendp(udp_101, iface=pf0)
+phase100: &phase100
+  name: SENT and CHECK queues
+  tg-scapy: |
+    sendp(udp_101, iface=pf0)
+    sendp(udp_102, iface=pf0)
+    sendp(udp_103, iface=pf0)
   result:
-    vm: '- RSS queue=0x1 -'
-
-phase102: &phase102
-  name: SENT and CHECK queue 2
-  tg-scapy: sendp(udp_102, iface=pf0)
-  result:
-    vm: '- RSS queue=0x2 -'
-
-phase103: &phase103
-  name: SENT and CHECK queue 3
-  tg-scapy: sendp(udp_103, iface=pf0)
-  result:
-    vm: '- RSS queue=0x3 -'
+    vm: {'and': ['- RSS queue=0x1 -', '- RSS queue=0x2 -', '- RSS queue=0x3 -']}
 
 flow:
   -
     phases: [ *phase0 ]
     repeat: 1
   -
-    phases: [ *phase101, *phase102, *phase103 ]
+    phases: [ *phase100 ]
     repeat: 1
-   
