@@ -114,8 +114,10 @@ class RCmd:
         elif isinstance (expected, dict): verdict = self.match_dict(expected)
         elif isinstance(expected, list): verdict = self.match_list(expected)
         else: verdict = False
-        if not verdict:
-            raise RCmdError('\n=== match failed\nexpected ' + str(expected) + '\noutput: ' + self.output)
+        if verdict: self.output = ''
+        else:
+            utest_logger.warning('match failed:\nexpected: \'' + str(expected) + '\'\noutput: ' + self.output)
+            raise RCmdError('match error')
 
     def close(self):
         self.ssh.close()

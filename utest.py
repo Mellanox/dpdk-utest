@@ -1,7 +1,6 @@
 #! /usr/bin/env python3
 
-import yaml
-
+import sys
 import logging
 from remote_ops import *
 from remote_cmd import *
@@ -30,6 +29,7 @@ if __name__ == "__main__":
         log_format = '[%(module)s] %(levelname)s %(message)s'
     else:
         log_format = '%(message)s'
+        sys.tracebacklimit = 0
     log_level = logging.INFO if not cl.args.verbose else logging.DEBUG
     utest_logger.setLevel(log_level)
     log_handler = logging.StreamHandler()
