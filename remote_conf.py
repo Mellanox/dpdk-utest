@@ -27,7 +27,7 @@ class UtestCL:
         self.args = self.cl.parse_args()
 
 class UtestData:
-    ssh_params = {'username': 'root', 'password': '3tango'}
+    ssh_params = {'username': 'root', 'keyfile': '$HOME/.ssh/id_rsa'}
 
     def __init__(self, cl:UtestCL):
         self.conf = {}
