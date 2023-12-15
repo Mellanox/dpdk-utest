@@ -7,7 +7,12 @@
   - Connected ports are of the same hardware type.
   - Each host in test setup has 2 ConnectX PF ports.
 - Unit test will not validate port hardware type, Firmware and Mellanox OFED versions.
-- Unit test client has SSH access hosts as the `root` user.
+
+## Requirements
+
+- Default SSH key for the `root` user must be configured on all tested hosts. 
+  Use the `set-root-key.sh` Shell script to configure SSH `root` access.
+  Current unit test implementation works with the default `id_rsa` key **only**.
 
 ## Test configuration file format
 
