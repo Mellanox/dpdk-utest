@@ -1,0 +1,21 @@
+dut:
+  host: 10.235.253.9
+  path: /opt/dpdk/nt2hws/build/app
+tg:
+  host: 10.235.253.10
+
+interfaces:
+  10.235.253.10:
+    netdev:
+      pf0: eth2
+      pf1: eth3
+    pci:
+      pci0: '0000:08:00.0'
+      pci1: '0000:08:00.1'
+  10.235.253.9:
+    netdev:
+      pf0: eth2
+      pf1: eth3
+    pci:
+      pci0: '0000:08:00.0'
+      pci1: '0000:08:00.1'
