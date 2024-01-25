@@ -37,7 +37,7 @@ pmd3: &pmd3
         flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions mark id 0x123 / jump group 1 / end
         flow pull 0 queue 0
 
-        flow actions_template 0 create ingress actions_template_id 10 template indirect_list 0 / end mask indirect_list / end
+        flow actions_template 0 create ingress actions_template_id 10 template indirect_list handle 0 / end mask indirect_list / end
         flow template_table 0 create table_id 10 ingress group 1 priority 0 rules_number 4 pattern_template 0 actions_template 10
         flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions indirect_list 0 / end
         flow pull 0 queue 0
