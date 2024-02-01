@@ -171,7 +171,8 @@ class TestPMD(RCmd):
             exit(-1)
         for cmd in commands:
             super().execute(cmd['command'], check_proc=self.is_alive)
-            if cmd['result'] is not None: self.match(cmd['result'])
+            if 'result' in cmd and cmd['result'] is not None:
+                self.match(cmd['result'])
 
 
 class Scapy(RCmd):
