@@ -8,7 +8,7 @@ from conf import TestConf
 from rcmd import *
 import sys
 
-# sys.tracebacklimit = 0
+sys.tracebacklimit = 0
 utest_logger = logging.getLogger('unit-tests-logger')
 
 class Agents:

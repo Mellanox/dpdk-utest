@@ -4,7 +4,6 @@ import paramiko
 import time, re
 import logging
 from remote_ops import RemoteOps
-from typing import Union
 
 utest_logger = logging.getLogger('unit-tests-logger')
 
@@ -75,27 +74,13 @@ class RCmd:
             raise RCmdError('killer command:\n' + command)
         self.rdout()
 
-    def match_str(self, expected:str) -> bool:
+    def match(self, expected:str):
+        self.rdout()
         pattern = r'{}'.format(expected)
         utest_logger.debug('\n>>>>>\n'+pattern+'\n<<<<<')
         res = re.search(pattern, self.output, re.DOTALL|re.MULTILINE)
-        return not res is None
-
-    def match_dict(self, expected:dict) -> bool:
-        for key in expected.keys():
-            if key == 'all':
-                for p in expected[key]:
-                    if not self.match_str(p): return False
-            if key == 'some':
-                    if self.match_str(p): return True
-
-    def match(self, expected:Union[str, dict]):
-        self.rdout()
-        if isinstance(expected, str): verdict = self.match_str(expected)
-        elif isinstance (expected, dict): verdict = self.match_dict(expected)
-        else: verdict = False
-        if not verdict:
-            RCmdError('\n=== match failed\nexpected ' + str(expected) + '\noutput: ' + self.output)
+        if not res: raise RCmdError('\n=== match failed\nexpected ' + expected
+                                    + '\noutput: ' + self.output)
 
     def close(self):
         self.ssh.close()
