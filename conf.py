@@ -104,15 +104,11 @@ class TestConf:
                     utest_logger.error(f'[{name}]: bad pmd format: command is string')
                     exit(-1)
                 if tag == 'result':
-                    if not isinstance(cmd[tag], str) and not isinstance(cmd[tag], dict) \
-                            and not isinstance(cmd[tag], type(None)):
-                        utest_logger.error(f'[{name}]: bad pmd format: result is string or dict or None')
+                    if not isinstance(cmd[tag], str) and \
+                            not isinstance(cmd[tag], type(None)):
+                        utest_logger.error(f'[{name}]: bad pmd format: '+
+                                     'result is string or None')
                         exit(-1)
-                    if isinstance(cmd[tag], dict):
-                        for key in cmd[tag].keys():
-                            if not isinstance(cmd[tag][key], list):
-                                utest_logger.error(f'[{name}]: bad pmd format: dict result is a list')
-                                exit(-1)
 
 
     def validate_phase(self, phases:list):
