@@ -47,6 +47,10 @@ if [ $? -ne 0 ]; then
 fi
 
 key_file=$(mktemp --suffix "_${USER}.tmp")
+ssh $ssh_params "$rhost" 'sudo -n test -d /root/.ssh'
+if [ $? -ne 0 ]; then
+ssh $ssh_params "$rhost" 'd=/root/.ssh; sudo -n mkdir $d; sudo -n touch $d/authorized_keys; sudo -n chmod 700 $d'
+fi
 ssh $ssh_params "$rhost" 'sudo -n cat /root/.ssh/authorized_keys' | grep -q "$(cat $key.pub)"
 if [ $? -ne 0 ]; then
   echo "\"root@$rhost\" add key \"$key.pub\""
