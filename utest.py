@@ -56,12 +56,12 @@ if __name__ == "__main__":
     agents = {}
     for app_tag in data.cmds.keys():
         if 'agent' in data.cmds[app_tag]:
-            match data.cmds[app_tag]['agent']:
-                case 'testpmd': agents[app_tag] = TestPMD(data, app_tag)
-                case 'scapy': agents[app_tag] = Scapy(data, app_tag)
-                case _:
-                    utest_logger.err('Invalid application tag: ' + app_tag)
-                    exit(-1)
+            agent = data.cmds[app_tag]['agent']
+            if agent == 'testpmd': agents[app_tag] = TestPMD(data, app_tag)
+            elif agent == 'scapy': agents[app_tag] = Scapy(data, app_tag)
+            else:
+                utest_logger.err('Unsupported agent: ' + agent)
+                exit(-1)
 
     try:
         for item in data.cmds['flow']:
