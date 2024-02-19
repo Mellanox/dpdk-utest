@@ -1,0 +1,55 @@
+setup:
+  hca: any #
+  fw: any
+  hws: False # change to True
+  pf: [nic, nic]
+  vf: [0, 0]
+  sf: [0, 0]
+
+#this test fails on HWS and SWS!!
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -a pf1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+#RTE_FLOW_ITEM_TYPE_NVGRE  Not supported. Planned for rel1 2024 FR #3144368
+#flow create 0 ingress group 1 pattern eth / ipv4 / udp / nvgre / end actions nvgre_decap / queue index 0 / end
+#removed nvgre from matching
+pmd1: &pmd1
+  command: |
+    flow create 0 ingress pattern eth / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / ipv4 / udp / end actions nvgre_decap / queue index 0 / end
+  result: (Flow rule \#\d created.*){1}
+
+
+phase0: &phase0
+  name: CONFIGURATION
+  tg: |
+    inner_pkt = Ether(src="b8:ce:f6:82:d5:65", dst="b8:ce:f6:82:d5:64") / IP(src="192.0.2.1", dst="192.0.2.2") / Raw(b'NVGRE payload') 
+    nvgre_pkt = Ether(src="b8:ce:f6:5e:6b:ab", dst="b8:ce:f6:5e:6b:ab") / IP(src="203.0.113.1", dst="203.0.113.2") / UDP(sport=4789, dport=4789) / NVGRE(vsid=10) / inner_pkt 
+    sniff=AsyncSniffer(iface=pf1, filter='ip src 192.0.2.1', prn=lambda x: print('CAPTURE A: ' + pf1 + ': '+ x.command()))
+  pmd: [ *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  tg: |
+    sniff.start()
+    time.sleep(1)
+    sendp(nvgre_pkt, iface=pf0)
+    time.sleep(5)
+    sniff.stop()
+  result:
+    pmd: 'port 0/queue 0: received 1 packets'
+    tg: "dst='b8:ce:f6:82:d5:64', src='b8:ce:f6:82:d5:65'"
+
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1

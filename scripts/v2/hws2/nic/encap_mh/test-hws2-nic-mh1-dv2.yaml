@@ -1,0 +1,52 @@
+setup:
+  hca: any #
+  fw: any
+  hws: False # change to True
+  pf: [nic, nic]
+  vf: [0, 0]
+  sf: [0, 0]
+
+prog: 'dpdk-testpmd -a pf0,dv_flow_en=2 -a pf1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+
+pmd0: &pmd0
+  command: |
+    port stop 0
+    port config 0 loopback 1
+    port start 0
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    flow create 0 egress pattern eth / end actions jump group 1 / end
+    flow create 0 egress  group 1 pattern eth / end actions modify_field op set dst_type ipv4_dst src_type ipv4_src width 32 / end
+  result: (Flow rule \#\d created.*){1}
+
+phase0: &phase0
+  name: CONFIGURATION
+  tg: |
+    udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+    sniff=AsyncSniffer(iface=pf0, filter='ip dst 1.1.1.1', prn=lambda x: print('CAPTURE A: ' + pf0 + ': '+ x.command()))
+  pmd: [ *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  tg: |
+    sniff.start()
+    time.sleep(1)
+    sendp(udp_101, iface=pf1)
+    time.sleep(5)
+    sniff.stop()
+  result: 
+    pmd: 'port 1/queue 0: received 1 packets'
+    tg: "src='1.1.1.1', dst='1.1.1.1'"
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1
