@@ -1,0 +1,47 @@
+pmd:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+
+tg:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    flow create 0 ingress pattern eth / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / ipv4 / udp / vxlan /  end actions vxlan_decap / queue index 0 / end
+  result: (Flow rule \#\d created.*){1}
+
+phase0: &phase0
+  name: CONFIGURATION
+  tg: |
+    inner_pkt = Ether(src="b8:ce:f6:82:d5:65", dst="b8:ce:f6:82:d5:64") / IP(src="192.0.2.1", dst="192.0.2.2") / Raw(b'VXLAN payload')
+    vxlan_pkt = Ether(src="b8:ce:f6:5e:6b:ab", dst="b8:ce:f6:5e:6b:ab") / IP(src="203.0.113.1", dst="203.0.113.2") / UDP(sport=4797, dport=4789) / VXLAN(vni=10) / inner_pkt 
+    sniff=AsyncSniffer(iface=pf1, filter='ether src host b8:ce:f6:82:d5:65', prn=lambda x: print('CAPTURE A: ' + pf1 + ': '+ x.command()))
+  pmd: [ *pmd0, *pmd1 ]
+#can also use filter='ip src 192.0.2.1' 
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  tg: |
+    sniff.start()
+    time.sleep(1)
+    sendp(vxlan_pkt, iface=pf0)
+    time.sleep(5)
+    sniff.stop()
+  result:
+    pmd: 'port 0/queue 0: received 1 packets'
+    tg: {'and': ['CAPTURE A:', "dst='b8:ce:f6:82:d5:64', src='b8:ce:f6:82:d5:65'"]}
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1
