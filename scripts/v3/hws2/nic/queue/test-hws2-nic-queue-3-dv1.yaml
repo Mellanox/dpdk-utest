@@ -1,0 +1,58 @@
+pmd:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+
+tg:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions queue index 1 / end
+    flow create 0 ingress pattern eth / ipv4 / udp src is 102 / end actions queue index 2 / end
+    flow create 0 ingress pattern eth / ipv4 / udp src is 103 / end actions queue index 3 / end
+  result: (Flow rule \#\d created.*){2}
+
+phase0: &phase0
+  name: CONFIGURATION
+  tg: |
+    udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+    udp_102 = udp_101.copy()
+    udp_103 = udp_101.copy()
+    udp_102[UDP].sport = 102
+    udp_103[UDP].sport = 103
+  pmd: [ *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  tg: sendp(udp_101, iface=pf0)
+  result:
+    pmd: '- RSS queue=0x1 -'
+
+phase102: &phase102
+  name: SENT and CHECK queue 2
+  tg: sendp(udp_102, iface=pf0)
+  result:
+    pmd: '- RSS queue=0x2 -'
+
+phase103: &phase103
+  name: SENT and CHECK queue 3
+  tg: sendp(udp_103, iface=pf0)
+  result:
+    pmd: '- RSS queue=0x3 -'
+#Notice will not fail for 'RSS queue=0x2' cause it was seen before,
+# will fail for 'RSS queue=0x4'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101, *phase102, *phase103 ]
+    repeat: 1
