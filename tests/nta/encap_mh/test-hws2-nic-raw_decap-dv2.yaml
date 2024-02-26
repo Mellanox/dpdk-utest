@@ -1,0 +1,48 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: ["shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@b1:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    set raw_decap 0 eth / vlan / ipv4 / gre / end_set
+    flow create 0 ingress pattern eth / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / end actions raw_decap index 0 / queue index 0 / end
+  result: (Flow rule \#\d created){2}
+
+phase0: &phase0
+  name: CONFIGURATION
+  scapy@b1: |
+    inner_pkt = Ether(src="00:00:00:00:00:01", dst="00:00:00:00:00:02") / IP(src="192.0.2.1", dst="192.0.2.2") / Raw(b'VXLAN payload')
+    packet = Ether(src="00:00:00:00:00:03", dst="00:00:00:00:00:04") / Dot1Q(vlan=10) / IP(src="192.168.1.1", dst="192.168.1.2") / GRE() / inner_pkt
+    sniff=AsyncSniffer(iface=pf1, filter='ip src 192.0.2.1', prn=lambda x: print('CAPTURE A: ' + pf1 + ': '+ x.command()))
+  pmd@a1: [ *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  scapy@b1: |
+    sniff.start()
+    time.sleep(1)
+    sendp(packet, iface=pf0)
+    time.sleep(5)
+    sniff.stop()
+  result:
+    pmd@a1: 'port 0/queue 0: received 1 packets'
+    scapy@b1: {'and': ['CAPTURE A:', "dst='00:00:00:00:00:02', src='00:00:00:00:00:01'"]}
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1

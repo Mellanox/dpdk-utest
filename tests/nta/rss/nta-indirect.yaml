@@ -1,0 +1,58 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+    setup: ["shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@b1:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+    flow indirect_action 0 create action_id 10 ingress action count / end
+    flow indirect_action 0 create action_id 11 ingress action rss types ipv4 ipv6 tcp udp esp l3-src-only l4-src-only end  queues 1 end  / end
+  # result: {'all': ['Change verbose level from 0 to 1', 'Indirect action #10 created', 'Indirect action #11 created']}
+
+var1: &ref_var1
+  command: |
+    flow create 0 ingress group 0 pattern eth src is aa:aa:aa:aa:aa:aa / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / end actions indirect 10 / indirect 11 / end
+  # result: {'all': ['Flow rule #0 created', 'Flow rule #1 created']}
+
+var2: &ref_var2
+    command: 'flow indirect_action 0 query 10' 
+
+phase0: &ref_phase0
+    name: CONFIGURATION
+    scapy@b1: |
+      udp4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=202, dport=5678)/Raw('== TEST ==')
+      udp6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb')/UDP(sport=202, dport=5678)/Raw('== TEST ==')      
+      tcp4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IP(src='1.1.1.1', dst='2.2.2.2')/TCP(sport=202, dport=5678)/Raw('== TEST ==')
+      tcp6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb')/TCP(sport=202, dport=5678)/Raw('== TEST ==')
+      ip4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IP(src='1.1.1.1', dst='2.2.2.2', proto=0)/Raw('== TEST ==')
+      ip6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb', nh=0)/Raw('== TEST ==')
+      icmp4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/ICMP()/Raw('== TEST ==' * 20)
+      packets = [ udp4, tcp4, udp6, tcp6 ]
+    pmd@a1: [ *ref_var0, *ref_var1 ]
+
+rss: &ref_rss
+    name: SHARED RSS
+    scapy@b1: |
+      for p in packets: sendp(p, iface=pf0)
+    result:
+        pmd@a1: {'and': ['RSS hash=0x99a93db', 'RSS hash=0x99a93db', 'RSS hash=0x9e4fc429', 'RSS hash=0x9e4fc429' ]}
+
+count: &ref_count
+    name: SHARED COUNT
+    pmd@a1: [ *ref_var2 ]
+    result:
+        pmd@a1: {'and': ['Indirect COUNT action:', 'hits: 4']}
+
+flow:
+    -
+        phases: [ *ref_phase0 ]
+        repeat: 1
+    -
+        phases: [ *ref_rss, *ref_count ]
+        repeat: 1

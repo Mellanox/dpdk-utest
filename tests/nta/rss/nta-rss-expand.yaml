@@ -1,0 +1,67 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0 -- -i --rxq=4 --txq=4'
+    setup: ["shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@b1:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from \d{1,} to 1'
+
+var1: &ref_var1
+  command: |
+    flow create 0 ingress pattern eth src is aa:aa:aa:aa:aa:aa / end actions rss types ipv4 ipv6 tcp udp esp l3-src-only l4-src-only end  queues 1 end  / end
+  result: 'Flow rule #0 created'
+
+phase0: &ref_phase0
+    name: CONFIGURATION
+    scapy@b1: |
+      udp4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=202, dport=5678)/Raw('== TEST ==')
+      udp6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb')/UDP(sport=202, dport=5678)/Raw('== TEST ==')      
+      tcp4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IP(src='1.1.1.1', dst='2.2.2.2')/TCP(sport=202, dport=5678)/Raw('== TEST ==')
+      tcp6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb')/TCP(sport=202, dport=5678)/Raw('== TEST ==')
+      ip4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IP(src='1.1.1.1', dst='2.2.2.2', proto=0)/Raw('== TEST ==')
+      ip6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb', nh=0)/Raw('== TEST ==')
+      icmp4 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/ICMP()/Raw('== TEST ==' * 20)
+      packets = [ udp4, tcp4, udp6, tcp6, icmp4 ]
+    pmd@a1: [ *ref_var0, *ref_var1 ]
+
+udp4: &ref_udp4
+    name: SEND and VALIDATE udp4
+    scapy@b1: |
+      sendp(udp4, iface=pf0)
+    result:
+        pmd@a1: 'RSS hash=0x99a93db'
+
+tcp4: &ref_tcp4
+    name: SEND and VALIDATE tcp4
+    scapy@b1: |
+      sendp(tcp4, iface=pf0)
+    result:
+        pmd@a1: 'RSS hash=0x99a93db'
+
+udp6: &ref_udp6
+    name: SEND and VALIDATE udp6
+    scapy@b1: |
+      sendp(udp6, iface=pf0)
+    result:
+        pmd@a1: 'RSS hash=0x9e4fc429'
+
+tcp6: &ref_tcp6
+    name: SEND and VALIDATE tcp6
+    scapy@b1: |
+      sendp(tcp6, iface=pf0)
+    result:
+        pmd@a1: 'RSS hash=0x9e4fc429'
+
+flow:
+    -
+        phases: [ *ref_phase0 ]
+        repeat: 1
+    -
+        phases: [ *ref_udp4, *ref_tcp4, *ref_udp6, *ref_tcp6 ]
+        repeat: 1

@@ -1,0 +1,92 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf[0-1] -- -i'
+    setup: [ "config-fdb --pci pci0 --vf 2",
+             "shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@b1:
+    agent: scapy
+
+scapy@a1:
+    agent: scapy
+
+pmd0: &ref_pmd0
+    command: |
+        start
+        set verbose 1
+    result: 'Change verbose level from \d{1,} to 1'
+
+pmd_query: &pmd_query
+    command: flow query 0 0 count
+
+pmd_drop: &pmd_drop
+    command: |
+        flow flush 0
+        flow create 0 group 0 transfer pattern eth / ipv4 / udp src is 101 / end actions count / drop / end
+    result: 'Flow rule #0 created'
+
+pmd_jump: &pmd_jump
+    command: |
+        flow flush 0
+        flow create 0 group   0 transfer pattern eth / ipv4 / udp src is 101 / end actions count / jump group 101 / end
+        flow create 0 group 101 transfer pattern eth / ipv4 / udp / end actions count / drop / end
+    result: {'and': ['Flow rule #0 created', 'Flow rule #1 created']}
+
+config_phase: &config_phase
+    name: SETUP
+    pmd@a1: [ *ref_pmd0 ]
+    scapy@b1: |
+        udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+        udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+    scapy@a1: "sniff=AsyncSniffer(iface=pf0vf0, filter='udp port 101')"
+
+drop_phase: &drop_phase
+    name: DROP
+    pmd@a1: [ *pmd_drop ]
+
+jump_phase: &jump_phase
+    name: JUMP
+    pmd@a1: [ *pmd_jump ]
+
+query_phase: &query_phase
+    name: 'SEND & TEST'
+    scapy@b1: |
+        sendp(udp_101, iface=pf0, count=101)
+        time.sleep(.1)
+    pmd@a1: [ *pmd_query ]
+    result:
+        pmd@a1: {'or': ['hits: 101', 'hits: 202' , 'hits: 303']}
+
+pmd_port: &pmd_port
+    command: |
+        flow flush 0
+        flow create 0 group 0 transfer pattern eth / ipv4 / udp src is 101 / end actions count / jump group 101 / end
+        flow create 0 group 101 transfer pattern eth / ipv4 / udp / end actions count / represented_port ethdev_port_id 1 / end 
+
+port_phase: &port_phase
+    name: 'PORT'
+    scapy@a1: sniff.start()
+    pmd@a1: [ *pmd_port ]
+
+vm_phase: &vm_phase
+    name: 'VM'
+    scapy@a1: |
+        time.sleep(.1)
+        cap = sniff.stop()
+        if len(cap[UDP]) == 101: print('brown fox')
+    result:
+        scapy@a1: brown fox
+
+flow:
+    -
+        phases: [ *config_phase ]
+        repeat: 1
+    -
+        phases: [ *drop_phase, *query_phase ]
+        repeat: 3
+    -
+        phases: [ *jump_phase, *query_phase ]
+        repeat: 3
+    -
+        phases: [ *port_phase, *query_phase, *vm_phase]
+        repeat: 3

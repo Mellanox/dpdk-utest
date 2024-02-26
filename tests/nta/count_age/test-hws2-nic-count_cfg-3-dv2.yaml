@@ -1,0 +1,55 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: ["shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@b1:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions jump group 10 / end
+    flow create 0 ingress group 10 pattern eth / end actions count / drop / end
+  result: (Flow rule \#\d created){2}
+#(err:.*)
+
+#configure 4 counters
+pmd2: &pmd2
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64 counters_number 4
+    port start 0
+  result: 'Configure flows on port 0'
+
+pmd3: &pmd3
+  command: |
+    flow query 0 1 count
+  result: {'and': ['COUNT', 'hits: 1']}
+
+phase0: &phase0
+  name: CONFIGURATION
+  scapy@b1: |
+    udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+  pmd@a1: [ *pmd2, *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: SENT and CHECK counter
+  scapy@b1: |
+    sendp(udp_101, iface=pf0)
+    time.sleep(1)
+  pmd@a1: [ *pmd3 ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1

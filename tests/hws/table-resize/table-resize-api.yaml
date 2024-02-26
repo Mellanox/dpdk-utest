@@ -1,0 +1,66 @@
+pmd:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i'
+    setup: ['shell sysctl -w vm.nr_hugepages=1024']
+
+pmd0: &pmd0
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64
+    port start all
+    set verbose 1
+    start
+    flow pattern_template 0 create pattern_template_id 0 ingress template eth / ipv4 / udp / end
+    flow actions_template 0 create ingress actions_template_id 0 template jump / end mask jump / end
+    flow template_table 0 create table_id 0 ingress group 0 priority 0 rules_number 1 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+    flow pull 0 queue 0
+  result: '0 failed, 1 succeeded'
+
+pmd1: &pmd1
+  command: |
+    flow pattern_template 0 create pattern_template_id 1 ingress template eth / ipv4 / udp  src mask 0xffff / end
+    flow actions_template 0 create ingress actions_template_id 1 template rss / end mask rss / end
+    flow template_table 0 create table_id 1 resizable ingress group 1 priority 0 rules_number 1 pattern_template 1 actions_template 1
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 1 / end actions rss / end
+    flow pull 0 queue 0
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 2 / end actions rss / end
+  result: {'and': ['0 failed, 1 succeeded', 'PMD error']}
+
+pmd2: &pmd2
+  command: |
+    flow template_table 0 resize table_resize_id 1 table_resize_rules_num 4
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 2 / end actions rss / end
+    flow pull 0 queue 0
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 3 / end actions rss / end
+    flow pull 0 queue 0
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 4 / end actions rss / end
+    flow pull 0 queue 0
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 5 / end actions rss / end
+    flow pull 0 queue 0
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp src spec 6 / end actions rss / end
+  result: {'and': [ '(0 failed){4}', '(1 succeeded){3,}', 'PMD error']}
+
+pmd3: &pmd3
+  command: |
+    flow queue 0 update_resized 0 rule 1
+    flow pull 0 queue 0
+    flow pull 0 queue 0
+    flow template_table 0 resize_complete table 1 
+
+phase1: &phase1
+  name: P1
+  pmd: [ *pmd0, *pmd1 ]
+
+phase2: &phase2
+  name: P2
+  pmd: [ *pmd2 ]
+
+phase3: &phase3
+  name: P3
+  pmd: [ *pmd3 ]
+
+flow:
+  -
+    phases: [ *phase1, *phase2, *phase3 ]
+    repeat: 1

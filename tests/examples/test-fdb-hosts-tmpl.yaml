@@ -1,0 +1,9 @@
+esw:
+  host: # DNS or IP
+  path: # path to testpmd
+vm:
+  host: # DNS or IP
+  path: # DNS or IP
+tg-scapy: 
+  host: # DNS or IP
+

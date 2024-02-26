@@ -1,0 +1,60 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: ["shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@b1:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    add port meter profile srtcm_rfc2697 0 4 230686720 28835840 0 0
+    flow create 0 ingress pattern eth / end actions jump group 3 / end
+    flow create 0 ingress group 3 pattern eth / end actions count / jump group 1 / end
+    flow create 0 priority 6558 ingress group 1 pattern eth / end actions meter_mark mtr_profile 4  mtr_color_mode 0 mtr_state 1 / jump group 2 / end
+    flow create 0 priority 6558 ingress group 2 pattern meter color is green / end actions count / queue index 1 / end
+    flow create 0 priority 6558 ingress group 2 pattern meter color is yellow / end actions count / queue index 2 / end
+    flow create 0 priority 6558 ingress group 2 pattern meter color is red / end actions count / queue index 3 / end
+  result: (Flow rule \#\d created){6}
+
+pmd2: &pmd2
+  command: |
+    port stop 0
+    flow configure 0 queues_number 1 queues_size 64 counters_number 4 aging_counters_number 4 meters_number 4 flags 0
+    port start 0
+  result: 'Configure flows '
+#test failure of configuration:
+#flow configure 0 queues_number 1 queues_size 64 counters_number 0 aging_counters_number 4 meters_number 0
+#flow configure 0 queues_number 1 queues_size 64 counters_number 4 aging_counters_number 4 meters_number 0
+
+pmd3: &pmd3
+  command: |
+    flow query 0 3 count
+  result: {'and': ['COUNT', 'hits_set: 1']}
+
+phase0: &phase0
+  name: CONFIGURATION
+  scapy@b1: |
+    udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
+    udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
+  pmd@a1: [*pmd2, *pmd0, *pmd1 ]
+#can also run w/o pmd2
+
+phase101: &phase101
+  name: SENT and CHECK green color counter
+  scapy@b1: sendp(udp_101, iface=pf0)
+  pmd@a1: [*pmd3]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1

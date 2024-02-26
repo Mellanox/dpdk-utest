@@ -1,0 +1,30 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i'
+    setup: ["shell sysctl -w vm.nr_hugepages=1024"]
+
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+    flow indirect_action 0 create ingress action_id 101 action conntrack / end
+  result: 'Indirect action #101 created'
+
+var1: &ref_var1
+  command: 'flow create 0 ingress group 101 pattern eth / ipv4 / tcp / end actions indirect 101 / rss / end'
+  result: 'Flow rule \#0 created'
+
+var2: &ref_var2
+    command: 'flow indirect_action 0 update 101 action conntrack_update dir ctx / end'
+    result: 'Indirect action \#101 updated'
+
+
+phase0: &ref_phase0
+    name: TEST
+    pmd@a1: [ *ref_var0, *ref_var1, *ref_var2 ]
+
+flow:
+    -
+        phases: [ *ref_phase0 ]
+        repeat: 1

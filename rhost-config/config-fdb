@@ -1,0 +1,62 @@
+#! /bin/bash
+
+function usage () {
+    echo "usage: $0 --pci PCI --vf VFNUM"
+}
+
+if test $# -ne 4; then
+    usage "$0"
+    exit 255
+fi
+
+while test $# -gt 0; do
+    case "$1" in
+    '--pci')
+        pci=$2
+        shift; shift
+        ;;
+    '--vf')
+        vf_num="$2"
+        shift;shift
+        ;;
+    *)
+        usage "0"
+        echo "invalid parameters: $*"
+        exit 255
+    esac
+done
+
+if test ! -e /sys/bus/pci/devices/$pci; then
+    echo "$0: invalid PCI: $pci"
+    return 255
+fi
+
+sysfs_vf="/sys/bus/pci/devices/$pci/mlx5_num_vfs"
+echo $vf_num > "$sysfs_vf"
+if test $? -ne 0; then
+    echo "$0: failed to configure SRIOV on ${pci}"
+    exit 255
+fi
+
+if test $(cat "$sysfs_vf") -ne "$vf_num"; then
+    echo "$0: failed to configure $vf_num VF ports on ${pci}"
+    exit 255
+fi
+
+vf_pci=$(ls -l /sys/bus/pci/devices/$pci/virtfn* | awk -F/ '{ print $NF}')
+
+for d in $vf_pci; do
+    echo $d > '/sys/bus/pci/drivers/mlx5_core/unbind'
+done
+
+devlink dev eswitch set "pci/${pci}" mode switchdev
+if test $? -ne 0; then
+    echo "$0: failed to set switchdev mode on ${pci}"
+    exit 255
+fi
+
+for d in $vf_pci; do
+    echo $d > '/sys/bus/pci/drivers/mlx5_core/bind'
+done
+
+exit 0
