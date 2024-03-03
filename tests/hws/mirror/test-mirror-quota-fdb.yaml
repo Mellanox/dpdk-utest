@@ -1,40 +1,32 @@
 pmd@a1:
-    agent: testpmd
-    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=pf[0-1\]vf\[0-3\] -- -i'
-    setup: [ "config-fdb --pci pci0 --vf 4",
-             "config-fdb --pci pci1 --vf 4",
-             "shell devlink dev param set pci/pci0 name esw_multiport value true cmode runtime",
-             "shell devlink dev param set pci/pci1 name esw_multiport value true cmode runtime",
-             "shell sysctl -w vm.nr_hugepages=1024"]
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci1,dv_flow_en=2,representor=vf\[0-3\] -- -i'
+  setup: [ "config-fdb --pci pci1 --vf 4",
+           "shell sysctl -w vm.nr_hugepages=1024"]
 
 scapy@a1:
-    agent: scapy
+  agent: scapy
 
 scapy@b1:
-    agent: scapy
+  agent: scapy
 
 pmd0: &pmd0
     command: |
         show port summary all
-    result: '([0-9].*mlx5_pci.*){10}'
+    result: '(^[1234].*_representor){4}'
 
 pmd1: &pmd1
     command: |
         port stop all
-        flow configure 0 queues_number 4 queues_size 64
+        flow configure 0 queues_number 4 queues_size 64 quotas_number 32
         flow configure 1 queues_number 4 queues_size 64
         flow configure 2 queues_number 4 queues_size 64
         flow configure 3 queues_number 4 queues_size 64
         flow configure 4 queues_number 4 queues_size 64
-        flow configure 5 queues_number 4 queues_size 64
-        flow configure 6 queues_number 4 queues_size 64
-        flow configure 7 queues_number 4 queues_size 64
-        flow configure 8 queues_number 4 queues_size 64
-        flow configure 9 queues_number 4 queues_size 64
         port start all
         start
         set verbose 1
-    result: '(Port [0-9]:.*){10}'
+    result: '(^Port [01234]:){5}'
 
 pmd2: &pmd2
     command: |
@@ -44,8 +36,16 @@ pmd2: &pmd2
         set sample_actions 0 raw_encap index 0 / represented_port ethdev_port_id 0 / end
         set sample_actions 1 raw_encap index 1 / represented_port ethdev_port_id 0 / end
 
-        flow indirect_action 0 create transfer list actions sample ratio 1 index 0 / sample ratio 1 index 1 / represented_port ethdev_port_id 2 / end
+        flow indirect_action 0 create transfer list actions sample ratio 1 index 0 / sample ratio 1 index 1 / represented_port ethdev_port_id 4 / end
     result: 'Indirect action #0 created'
+
+c1: &c1
+  command: |
+    flow  queue 0 indirect_action 3 create ingress action_id 8 action quota_create limit 18000 mode l3 / end
+    flow pull 0 queue 3
+    flow queue 0 indirect_action 3 query 8
+    flow pull 0 queue 3
+  result: 'unused quota: 18000'
 
 pmd3: &pmd3
     command: |
@@ -53,53 +53,53 @@ pmd3: &pmd3
         flow pattern_template 0 create transfer pattern_template_id 0 template represented_port ethdev_port_id is 0 / eth / end
         flow actions_template 0 create transfer actions_template_id 0 template jump / end mask jump group 0 / end
         flow template_table 0 create table_id 0 transfer group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
-        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern represented_port ethdev_port_id is 9 / eth / end actions jump group 10 / end
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern represented_port ethdev_port_id is 1 / eth / end actions jump group 10 / end
         flow pull 0 queue 0
 
         # activate the mirror action
         flow pattern_template 0 create transfer pattern_template_id 10 template eth / end
-        flow actions_template 0 create transfer actions_template_id 10 template indirect_list handle 0 / end mask indirect_list / end
+        flow actions_template 0 create transfer actions_template_id 10 template indirect / indirect_list handle 0 / end mask quota_create / indirect_list / end
         flow template_table 0 create table_id 10 transfer group 10 priority 0 rules_number 4 pattern_template 10 actions_template 10
-        flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / end actions indirect_list handle 0 / end
+        flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / end actions indirect 8 / indirect_list handle 0 / end
         flow pull 0 queue 0
-    result: '(0 failed, 1 succeeded){2}'
+    result: '(0 failed, 1 succeeded){2,}'
 
 phase0: &phase0
     name: config
-    pmd@a1: [ *pmd0, *pmd1, *pmd2, *pmd3 ]
+    pmd@a1: [ *pmd0, *pmd1, *pmd2, *c1, *pmd3 ]
     scapy@a1: |
         import sys
         import time
         packet=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IPv6()/UDP(sport=1, dport=1)/Raw('==test==')
-        sniff2=AsyncSniffer(iface=pf0vf0, filter='udp and dst port 1', prn=lambda x: print('VM CAPTURE: ' + pf0vf0 + ': '+ x.command()))
-    scapy@b1: |
+        sniff3=AsyncSniffer(iface=pf1vf3, filter='udp and dst port 1', prn=lambda x: print('VM CAPTURE: ' + pf1vf3 + ': '+ x.command()))
+    scapy@b1:  |
         import sys
-        sniff=AsyncSniffer(iface=pf0, filter='udp and dst port 4789', prn=lambda x:print('TG CAPTURE:'+ x.command()))
+        sniff=AsyncSniffer(iface=pf1, filter='udp and dst port 4789', prn=lambda x:print('TG CAPTURE:'+ x.command()))
 
 phase1: &phase1
     name: ==== SEND ====
-    scapy@b1: |
+    scapy@b1:  |
         sniff.start()
     scapy@a1: |
-        sniff2.start()
+        sniff3.start()
         time.sleep(1)
-        sendp(packet, iface=pf1vf3, count=1, verbose=1)
+        sendp(packet, iface=pf1vf0, count=1, verbose=1)
 
 phase2: &phase2
     name: ===== VERIFY ======
-    scapy@b1: |
+    scapy@b1:  |
         x=sniff.stop()
         print('====================')
         print('tg captured ' + str(len(x[UDP])))
         sys.stdout.flush()
     scapy@a1: |
-        x=sniff2.stop()
+        x=sniff3.stop()
         print('====================')
         print('vm captured ' + str(len(x[UDP])))
         sys.stdout.flush()
     result:
-        scapy@b1: 'tg captured 2'
-        scapy@a1: 'vm captured 1'
+        scapy@b1:  'tg captured 2'
+        scapy@a1: 'vm captured 1'    
 
 flow:
     -
@@ -109,3 +109,5 @@ flow:
     -
         phases: [ *phase1, *phase2 ]
         repeat: 1
+
+
