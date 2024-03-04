@@ -72,7 +72,7 @@ where F: FnMut() -> Result<T, Error> {
             Err(ssh_err) => {
                 let io_err = io::Error::from(ssh_err);
                 if !continue_after_error(&io_err) {
-                    log::warn!("read error {:?}", io_err);
+                    log::trace!("io error {:?}", io_err);
                     return None
                 }
             }
@@ -195,7 +195,7 @@ pub fn rsh_exec(hostname:&str, cmd:&str) -> (String, i32) {
                         Some(e) => e,
                         None => 255 as i32
                     };
-                    log::warn!("read error {:?} ({})", err, os_err);
+                    log::trace!("read error {:?} ({})", err, os_err);
                     break;
                 }
         }

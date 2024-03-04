@@ -273,7 +273,7 @@ pub fn do_flow(map:&Mapping, ops_db: &mut OpsDb) {
         for val in map.get("phases").unwrap().as_sequence().unwrap() {
             let phase = val.as_mapping().unwrap();
             if phase.contains_key("name") {
-                log::info!("phase: {} {i}/{repeat}", map_str2val(phase, "name"));
+                log::info!("phase: {} cycle {i} of {repeat}", map_str2val(phase, "name"));
             }
             do_phase(phase, ops_db);
         }
