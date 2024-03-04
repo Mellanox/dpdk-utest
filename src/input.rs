@@ -1,22 +1,25 @@
+use std::env;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 
 pub struct CmdLine {
-    pub commands: String,
-    pub hosts:String,
-    pub mtdev:String,
+    pub commands_file:String,
+    pub hosts_file:String,
+    pub mlx_dev:String,
+    pub ssh_key:String,
     pub verbose:bool,
-    pub show:bool,
+    pub show_commands:bool,
     pub reuse_conifiguration:bool,
 }
 
 impl Default for CmdLine {
     fn default() -> Self {
         Self {
-            commands: Default::default(),
-            hosts: Default::default(),
-            mtdev: Default::default(),
+            commands_file: Default::default(),
+            hosts_file: Default::default(),
+            mlx_dev: Default::default(),
+            ssh_key: Default::default(),
             verbose: false,
-            show: false,
+            show_commands: false,
             reuse_conifiguration: false,
         }
     }
@@ -48,6 +51,11 @@ impl CmdLine {
                 .required(false)
                 .action(ArgAction::Set)
                 .help("MT device"))
+            .arg(Arg::new("key")
+                .long("key")
+                .required(false)
+                .action(ArgAction::Set)
+                .help("SSH key"))
             .arg(Arg::new("verbose")
                 .long("verbose")
                 .short('v')
@@ -68,15 +76,20 @@ impl CmdLine {
         let params = cmd.get_matches();
 
         CmdLine {
-            commands: CmdLine::fetch_param_value(&params, "commands"),
-            hosts: CmdLine::fetch_param_value(&params, "hosts"),
-            mtdev: if params.contains_id("mtdev") {
+            commands_file: CmdLine::fetch_param_value(&params, "commands"),
+            hosts_file: CmdLine::fetch_param_value(&params, "hosts"),
+            mlx_dev: if params.contains_id("mtdev") {
                 CmdLine::fetch_param_value(&params, "mtdev")
             } else {
                 String::new()
             },
+            ssh_key: if params.contains_id("key") {
+                CmdLine::fetch_param_value(&params, "key")
+            } else {
+                format!("{}/.ssh/id_rsa",env::var("HOME").unwrap())
+            },
             verbose: *params.get_one::<bool>("verbose").unwrap(),
-            show: *params.get_one::<bool>("show").unwrap(),
+            show_commands: *params.get_one::<bool>("show").unwrap(),
             reuse_conifiguration: *params.get_one::<bool>("fast").unwrap(),
         }
     }
