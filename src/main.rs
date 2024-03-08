@@ -705,7 +705,8 @@ fn main() {
     inputs.cmdline = CmdLine::new();
     log::set_logger(&UTEST_LOGGER).unwrap();
     log::set_max_level(
-        if inputs.cmdline.verbose {LevelFilter::Trace}
+        if inputs.cmdline.silent {LevelFilter::Warn}
+        else if inputs.cmdline.verbose {LevelFilter::Trace}
         else {LevelFilter::Info}
     );
     log::trace!(target: "SSH key", "\'{}\'", inputs.cmdline.ssh_key);

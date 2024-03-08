@@ -7,6 +7,7 @@ pub struct CmdLine {
     pub mlx_dev:String,
     pub ssh_key:String,
     pub verbose:bool,
+    pub silent:bool,
     pub show_commands:bool,
     pub reuse_conifiguration:bool,
 }
@@ -19,6 +20,7 @@ impl Default for CmdLine {
             mlx_dev: Default::default(),
             ssh_key: Default::default(),
             verbose: false,
+            silent: false,
             show_commands: false,
             reuse_conifiguration: false,
         }
@@ -62,6 +64,12 @@ impl CmdLine {
                 .required(false)
                 .action(ArgAction::SetTrue)
                 .help("verbose execution"))
+            .arg(Arg::new("silent")
+                .long("silent")
+                .short('s')
+                .required(false)
+                .action(ArgAction::SetTrue)
+                .help("silent execution"))
             .arg(Arg::new("fast")
                 .long("fast")
                 .required(false)
@@ -89,6 +97,7 @@ impl CmdLine {
                 format!("{}/.ssh/id_rsa",env::var("HOME").unwrap())
             },
             verbose: *params.get_one::<bool>("verbose").unwrap(),
+            silent: *params.get_one::<bool>("silent").unwrap(),
             show_commands: *params.get_one::<bool>("show").unwrap(),
             reuse_conifiguration: *params.get_one::<bool>("fast").unwrap(),
         }
