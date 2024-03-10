@@ -2,12 +2,29 @@ use std::ops::ControlFlow;
 use std::{thread, time};
 use std::collections::HashMap;
 use serde_yaml::{Mapping, Value};
-use crate::{Ops, OpsDb, map_str2val, Tags};
+use crate::{Ops, OpsDb, map_str2val, Tags, log_target, rsh};
+use crate::rsh::rsh_disconnect;
 
 pub fn do_test(commands:&Mapping, ops_db:&mut OpsDb) {
+    let delay = time::Duration::from_millis(100);
+
     for elm in commands.get("flow").unwrap().as_sequence().unwrap() {
         do_flow(elm.as_mapping().unwrap(), ops_db)
     }
+    ops_db.iter_mut().filter(|(_, op)| {
+        op.tag().agent.eq("testpmd")
+    }).for_each(|(tag, op)| {
+        rsh::rsh_write(op.channel(), "quit\n");
+        thread::sleep(delay);
+        let status = rsh_disconnect(op.channel());
+        if status == 0 {
+            log::trace!(target: &log_target(tag), "terminated")
+        }
+        if status != 0 {
+            log::error!(target: &log_target(tag), "bad exit status: {status}");
+            std::process::exit(255);
+        }
+    })
 }
 
 fn parse_result_map(map:&Mapping) -> (&str, Vec<String>){

@@ -214,6 +214,11 @@ pub fn rsh_exec(rhost:&RHost, cmd:&str) -> (String, i32) {
     (output, status)
 }
 
+pub fn rsh_disconnect(channel:&mut Channel) -> i32 {
+    ssh2_nb(|| channel.close());
+    channel.exit_status().unwrap()
+}
+
 pub fn mst_status(rhost:&RHost) -> MlxDevDb {
     const MST_STATUS_REGEX:&str = r#"(?m)/dev/mst/(mt[[:digit:]]{1,}).*([[:xdigit:]]{2}):([[:xdigit:]]{2})\.([[:xdigit:]]{1})"#;
 
