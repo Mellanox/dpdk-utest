@@ -17,8 +17,9 @@ pmd0: &pmd0
 
 pmd1: &pmd1
   command: |
+    set nvgre ip-version ipv4 tni 2017867 ip-src 162.3.75.180 ip-dst 228.129.100.27 eth-src 08:c0:eb:21:03:aa eth-dst b8:ce:f6:82:d5:64
     flow create 0 egress pattern eth / end actions jump group 1 / end
-    flow create 0 egress  group 1 pattern eth / end actions modify_field op set dst_type ipv4_dst src_type ipv4_src width 32 / end
+    flow create 0 egress group 1 pattern eth / end actions nvgre_encap / end
   result: (Flow rule \#\d created){2}
 
 phase0: &phase0
@@ -26,7 +27,7 @@ phase0: &phase0
   scapy@b1: |
     udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
     udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
-    sniff=AsyncSniffer(iface=pf0, filter='ip dst 1.1.1.1', prn=lambda x: print('CAPTURE A: ' + pf0 + ': '+ x.command()))
+    sniff=AsyncSniffer(iface=pf0, filter='ip src 162.3.75.180', prn=lambda x: print('CAPTURE A: ' + pf0 + ': '+ x.command()))
   pmd@a1: [ *pmd0, *pmd1 ]
 
 phase101: &phase101
@@ -37,9 +38,9 @@ phase101: &phase101
     sendp(udp_101, iface=pf1)
     time.sleep(5)
     sniff.stop()
-  result: 
+  result:
     pmd@a1: 'port 1/queue 0: received 1 packets'
-    scapy@b1: {'and': ['CAPTURE A:', "src='1.1.1.1', dst='1.1.1.1'"]}
+    scapy@b1: {'and': ['CAPTURE A:', "dst='b8:ce:f6:82:d5:64', src='08:c0:eb:21:03:aa'"]}
 
 flow:
   -

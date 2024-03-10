@@ -37,7 +37,7 @@ phase0: &phase0
   scapy@b1: |
     udp_101 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')
     udp_101 /= UDP(sport=101, dport=5678)/Raw('== TEST ==')
-  pmd@a1: [ *pmd2, *pmd0, *pmd1 ]
+  pmd@a1: [ *pmd0, *pmd1 ]
 
 phase101: &phase101
   name: SENT and CHECK counter
