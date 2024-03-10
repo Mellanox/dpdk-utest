@@ -2,7 +2,7 @@ pmd@a1:
     agent: testpmd
     cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf[0-1] -- -i'
     setup: [ "config-fdb --pci pci0 --vf 2",
-             "shell sysctl -w vm.nr_hugepages=1024"]
+             "shell sysctl -w vm.nr_hugepages=4096"]
 
 scapy@b1:
     agent: scapy
