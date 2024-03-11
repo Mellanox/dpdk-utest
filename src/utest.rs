@@ -16,7 +16,7 @@ pub fn do_test(commands:&Mapping, ops_db:&mut OpsDb) {
     }).for_each(|(tag, op)| {
         rsh::rsh_write(op.channel(), "quit\n");
         thread::sleep(delay);
-        let status = rsh_disconnect(op.channel());
+        let status = rsh_disconnect(tag, op.channel());
         if status == 0 {
             log::trace!(target: &log_target(tag), "terminated")
         }
