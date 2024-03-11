@@ -214,9 +214,40 @@ pub fn rsh_exec(rhost:&RHost, cmd:&str) -> (String, i32) {
     (output, status)
 }
 
-pub fn rsh_disconnect(channel:&mut Channel) -> i32 {
+pub fn rsh_disconnect(tag:&str, channel:&mut Channel) -> i32 {
+    loop {
+        let mut buffer: [u8; 1024] = [0; 1024];
+        match channel.read(&mut buffer) {
+            Ok(0)  => { break }
+            Ok(_) => {
+                let output = String::from_utf8(buffer.into()).unwrap();
+                log::trace!("{output}");
+            }
+            Err(err) =>
+                if !continue_after_error(&err) {
+                    let os_err = match err.raw_os_error() {
+                        Some(e) => e,
+                        None => 255 as i32
+                    };
+                    log::warn!(target: &log_target(tag), "read error {:?} ({})", err, os_err);
+                    return os_err as i32;
+                }
+        }
+    }
+    loop {
+         if channel.eof() {break}
+    }
     ssh2_nb(|| channel.close());
-    channel.exit_status().unwrap()
+    let status = channel.exit_status().unwrap();
+    if status != 0 {
+        log::warn!(target: &log_target(tag), "exit status {status}");
+        return status
+    }
+    let sig = channel.exit_signal().unwrap();
+    return if sig.exit_signal.is_none() {0} else {
+        log::warn!(target: &log_target(tag), "exit signal: {}", sig.exit_signal.unwrap());
+        255 as i32
+    }
 }
 
 pub fn mst_status(rhost:&RHost) -> MlxDevDb {
