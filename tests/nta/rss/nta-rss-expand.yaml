@@ -1,6 +1,6 @@
 pmd@a1:
     agent: testpmd
-    cmd: 'dpdk-testpmd -a pci0 -- -i --rxq=4 --txq=4'
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
     setup: ["shell sysctl -w vm.nr_hugepages=4096"]
 
 scapy@b1:
