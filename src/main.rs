@@ -65,20 +65,23 @@ pub trait Ops {
             if self.channel().eof() {
                 panic!("{}> connection is down", self.tag().app);
             }
-            self.read_output();
-            if self.try_match_output(&delim) {
-                break;
-            }
-            miss_count += 1;
-            if (miss_count & 3) != 0 {
-                self.do_command("###\n");
-                rsh::rsh_write(&mut self.channel(), "###\n");
+            let output = self.read_output();
+            if output.len() > 0 {
+                if self.try_match_output(&delim) {
+                    break;
+                } else if !output.contains(&delim) {
+                    miss_count += 1;
+                    if (miss_count & 1) != 0 {
+                        self.do_command("###\n");
+                        rsh::rsh_write(&mut self.channel(), "###\n");
+                    }
+                }
             }
             log::trace!(target:&log_target(&self.tag().app), "waiting for command completion");
             thread::sleep(delay); // wait for command to complete
         }
     }
-    fn read_output(&mut self) {
+    fn read_output(&mut self) -> String {
         let output = rsh::rsh_read(&mut self.channel());
         let delim = self.prompt().as_str();
         let delim_ext = format!("{}###", delim);
@@ -86,7 +89,6 @@ pub trait Ops {
             let mut filtered = String::new();
             output.split("\r\n")
                 .filter(|line| line.len() > 0)
-                // .filter(|line| line.ne(&"###"))
                 .filter(|line| line.ne(&delim))
                 .filter(|line| {
                     if line.contains(&delim_ext) || line.contains("###") {false}
@@ -101,6 +103,7 @@ pub trait Ops {
             }
             self.mut_output().push_str(&output);
         }
+        output
     }
 
     fn try_match_output(&mut self, expected:&str) -> bool {
