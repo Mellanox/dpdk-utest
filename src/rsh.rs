@@ -5,7 +5,6 @@ use std::path::Path;
 use std::ops::Add;
 use std::time::{SystemTime};
 use std::fs;
-use std::os::linux::fs::MetadataExt;
 use regex::Regex;
 use ssh2::{Channel, Error, ExtendedData, Session};
 use crate::{log_target, rsh};
@@ -141,9 +140,8 @@ pub fn rsh_send_file(rhost:&RHost, local:&Path, remote:&Path) {
         Err(err) => panic!("invalid local entry {:?} err: {:?}", local, err)
     };
     let session = rsh_session(rhost);
-    let mut ch = ssh2_nb(||session.scp_send(remote,
-                                              (meta.st_mode() & 0777) as i32, // ???
-                                                    meta.len(), None)).unwrap();
+    let mut ch = ssh2_nb(|| session.scp_send(remote, 0x164 as i32, // 0544
+                                             meta.len(), None)).unwrap();
     let read_buffer = std::fs::read(local).unwrap();
     assert!(meta.len() == read_buffer.len() as u64);
     let transfered_size;
@@ -169,8 +167,6 @@ pub fn rsh_send_file(rhost:&RHost, local:&Path, remote:&Path) {
     ssh2_nb(|| ch.wait_close());
     ssh2_nb(|| ch.close());
     ssh2_nb(|| session.disconnect(None, "", None));
-    // I don't understand how scp_send assigns remote mode bits
-    rsh_exec(rhost, &format!("chmod 444 {}\n", remote.to_str().unwrap()));
 }
 
 pub fn rsh_connect(rhost:&RHost) -> Channel {
