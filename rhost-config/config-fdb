@@ -59,4 +59,12 @@ for d in $vf_pci; do
     echo $d > '/sys/bus/pci/drivers/mlx5_core/bind'
 done
 
+# Test VF interfaces configuration depends on devlink output.
+# Some older installations have outdated devlink versions.
+devlink_vf_cnt=$(devlink port | egrep -c 'pci/'${pci}/'[[:digit:]]{1,}:.*pfnum [[:digit:]]{1,} vfnum [[:digit:]]{1,}')
+if test "$devlink_vf_cnt" -ne "$vf_num"; then
+  echo "devlink port did not locate VF interfaces"
+  exit 255
+fi
+
 exit 0
