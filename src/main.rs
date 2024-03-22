@@ -229,6 +229,7 @@ impl<'a> Testpmd<'a> {
         loop {
             if ch.eof() { panic!("{}> testpmd failed to initialize", tag.app); }
             let output = rsh::rsh_read(&mut ch);
+            println!("{output}");
             if output.contains("testpmd>") {break}
             thread::sleep(delay); // wait for testpmd to initialize
         }
