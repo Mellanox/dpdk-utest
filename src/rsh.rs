@@ -25,12 +25,6 @@ fn continue_after_error(err:&io::Error) -> bool {
 const RSH_READ_MAX_DURATION:time::Duration = time::Duration::from_millis(350);
 const RSH_READ_IDLE_TIMEOUT:time::Duration = time::Duration::from_millis(10);
 
-fn channel_check_eof(channel: &mut Channel) {
-    if channel.eof() {
-        panic!("Connection is dead");
-    }
-}
-
 pub fn rsh_read(channel: &mut Channel) -> String  {
     let mut end = SystemTime::now().add(RSH_READ_MAX_DURATION);
     let mut output = String::new();
@@ -44,7 +38,6 @@ pub fn rsh_read(channel: &mut Channel) -> String  {
     }
 
     loop {
-        channel_check_eof(channel);
         let mut buffer: [u8; 1] = [0; 1];
         match channel.read(&mut buffer) {
             Ok(0)  => { read_idle!(); }
@@ -59,11 +52,21 @@ pub fn rsh_read(channel: &mut Channel) -> String  {
                 else {panic!("read error {:?}", err)}
         }
     }
+    if channel.eof() {
+        println!("{output}");
+        let status = rsh_disconnect("TBD", channel);
+        log::error!("Connection is dead ({status})");
+        std::process::exit(status);
+    }
     output
 }
 
 pub fn rsh_write(ch:&mut Channel, buf:&str) {
-    channel_check_eof(ch);
+    if ch.eof() {
+        let status = rsh_disconnect("TBD", ch);
+        log::error!("Connection is dead ({status})");
+        std::process::exit(status);
+    }
     match ch.write(buf.as_bytes()) {
         Ok(_) => (),
         Err(e) => panic!("write failure: {:?}", e)
