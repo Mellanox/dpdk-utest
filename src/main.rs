@@ -16,7 +16,14 @@ use std::io::{Read, Write};
 use regex::Regex;
 use ssh2::{Channel};
 use serde_yaml::{Mapping};
-use crate::rsh::{is_rhost_alive, mst_status, MlxDev, rsh_exec, rsh_send_dir};
+use crate::rsh::{is_rhost_alive, mst_status, MlxDev, rsh_exec, rsh_send_dir, rsh_disconnect};
+
+fn read_error(tag:&str, ch:&mut Channel, err:&ssh2::Error) {
+    let status = rsh_disconnect(tag, ch);
+    log::error!(target: &log_target(tag), "{} ({status})", err.message());
+    std::process::exit(status);
+
+}
 
 pub fn log_target(tmpl:&str) -> String {
     format!("{tmpl}")
@@ -82,28 +89,36 @@ pub trait Ops {
         }
     }
     fn read_output(&mut self) -> String {
-        let output = rsh::rsh_read(&mut self.channel());
-        let delim = self.prompt().as_str();
-        let delim_ext = format!("{}###", delim);
-        if output.len() > 0 {
-            let mut filtered = String::new();
-            output.split("\r\n")
-                .filter(|line| line.len() > 0)
-                .filter(|line| line.ne(&delim))
-                .filter(|line| {
-                    if line.contains(&delim_ext) || line.contains("###") {false}
-                    else {true}
-                })
-                .for_each(|line| {
-                    filtered.push_str(line);
-                    filtered.push_str("\n");
-            });
-            if filtered.len() > 0 {
-                log::info!(target: &log_target(&self.tag().app), "\n{filtered}", );
+        match rsh::rsh_read(&mut self.channel()) {
+            Ok(output) => {
+                let delim = self.prompt().as_str();
+                let delim_ext = format!("{}###", delim);
+                if output.len() > 0 {
+                    let mut filtered = String::new();
+                    output.split("\r\n")
+                          .filter(|line| line.len() > 0)
+                          .filter(|line| line.ne(&delim))
+                          .filter(|line| {
+                              if line.contains(&delim_ext) || line.contains("###") {false}
+                              else {true}
+                          })
+                          .for_each(|line| {
+                              filtered.push_str(line);
+                              filtered.push_str("\n");
+                          });
+                    if filtered.len() > 0 {
+                        log::info!(target: &log_target(&self.tag().app), "\n{filtered}", );
+                    }
+                    self.mut_output().push_str(&output);
+                }
+                return output
+            },
+            Err(err) => {
+                let app = self.tag().app.clone();
+                read_error(&app, &mut self.channel(), &err);
+                err.to_string().clone()
             }
-            self.mut_output().push_str(&output);
         }
-        output
     }
 
     fn try_match_output(&mut self, expected:&str) -> bool {
@@ -227,11 +242,16 @@ impl<'a> Testpmd<'a> {
         log::info!(target: &log_target(&tag.app), "{testpmd_cmd}");
         rsh::rsh_command(&mut ch, &mut testpmd_cmd);
         loop {
-            if ch.eof() { panic!("{}> testpmd failed to initialize", tag.app); }
-            let output = rsh::rsh_read(&mut ch);
-            println!("{output}");
-            if output.contains("testpmd>") {break}
-            thread::sleep(delay); // wait for testpmd to initialize
+            match rsh::rsh_read(&mut ch) {
+                Ok(output) => {
+                    log::info!(target:&tag.app, "{output}");
+                    if output.contains("testpmd>") {break}
+                    thread::sleep(delay); // wait for testpmd to initialize
+                },
+                Err(err) => {
+                    read_error(&tag.app, &mut ch, &err)
+                }
+            }
         }
         Self {
             core: Core::new(tag, "testpmd> ", ch),

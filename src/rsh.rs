@@ -25,15 +25,18 @@ fn continue_after_error(err:&io::Error) -> bool {
 const RSH_READ_MAX_DURATION:time::Duration = time::Duration::from_millis(350);
 const RSH_READ_IDLE_TIMEOUT:time::Duration = time::Duration::from_millis(10);
 
-pub fn rsh_read(channel: &mut Channel) -> String  {
+pub fn rsh_read(channel: &mut Channel) -> Result<String, ssh2::Error>  {
     let mut end = SystemTime::now().add(RSH_READ_MAX_DURATION);
     let mut output = String::new();
 
     macro_rules! read_idle {
         () => {
-                if SystemTime::now().gt(&end) {break}
-                thread::sleep(RSH_READ_IDLE_TIMEOUT);
-                continue
+            if channel.eof() {
+                return Err(ssh2::Error::eof());
+            }
+            if SystemTime::now().gt(&end) {break}
+            thread::sleep(RSH_READ_IDLE_TIMEOUT);
+            continue
         };
     }
 
@@ -52,13 +55,7 @@ pub fn rsh_read(channel: &mut Channel) -> String  {
                 else {panic!("read error {:?}", err)}
         }
     }
-    if channel.eof() {
-        println!("{output}");
-        let status = rsh_disconnect("TBD", channel);
-        log::error!("Connection is dead ({status})");
-        std::process::exit(status);
-    }
-    output
+    Ok(output)
 }
 
 pub fn rsh_write(ch:&mut Channel, buf:&str) {
@@ -220,7 +217,7 @@ pub fn rsh_disconnect(tag:&str, channel:&mut Channel) -> i32 {
             Ok(0)  => { break }
             Ok(_) => {
                 let output = String::from_utf8(buffer.into()).unwrap();
-                log::trace!("{output}");
+                log::info!(target: &log_target(tag), "{output}");
             }
             Err(err) =>
                 if !continue_after_error(&err) {
