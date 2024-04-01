@@ -17,6 +17,7 @@ tests/nta/indirect/indirect-ct.yaml
 tests/nta/queue/test-hws2-nic-queue-3-dv1.yaml
 tests/nta/queue/test-hws2-nic-queue-3-dv2.yaml
 tests/nta/fdb/nta-fdb-cmd.yaml
+tests/nta/fdb/nta-fdb-cmd_w_cfg.yaml
 tests/nta/rss/nta-rss-simple.yaml
 tests/nta/rss/nta-indirect.yaml
 tests/nta/rss/nta-rss-expand.yaml
@@ -25,6 +26,8 @@ tests/nta/meter/test-hws2-nic-meter_mark-3-dv2.yaml
 tests/nta/encap_mh/test-hws2-nic-raw_encap-dv2.yaml
 tests/nta/encap_mh/test-hws2-nic-mh2-dv2.yaml
 tests/nta/encap_mh/test-hws2-nic-vxlan_encap-dv2.yaml
+tests/nta/encap_mh/test-hws2-nic-nvgre_encap-dv2.yaml
+tests/nta/encap_mh/test-hws2-nic-nvgre_decap-dv2.yaml
 tests/nta/encap_mh/test-hws2-nic-vxlan_decap-dv2.yaml
 tests/nta/encap_mh/test-hws2-nic-mh1-dv2.yaml
 tests/nta/encap_mh/test-hws2-nic-raw_decap-dv2.yaml
