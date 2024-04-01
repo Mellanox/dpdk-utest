@@ -52,7 +52,7 @@ query_phase: &query_phase
     name: 'SEND & TEST'
     scapy@b1: |
         sendp(udp_101, iface=pf0, count=101)
-        time.sleep(.1)
+        time.sleep(1)
     pmd@a1: [ *pmd_query ]
     result:
         pmd@a1: {'or': ['hits: 101', 'hits: 202' , 'hits: 303']}
@@ -71,7 +71,7 @@ port_phase: &port_phase
 vm_phase: &vm_phase
     name: 'VM'
     scapy@a1: |
-        time.sleep(.1)
+        time.sleep(1)
         cap = sniff.stop()
         if len(cap[UDP]) == 101: print('brown fox')
     result:
