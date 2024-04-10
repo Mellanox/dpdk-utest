@@ -1,0 +1,36 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci1,dv_flow_en=2,representor=vf\[0,1\] -- -i'
+  setup: [ "config-fdb --pci pci1 --vf 2",
+            "shell sysctl -w vm.nr_hugepages=1024"]
+
+pmd1: &pmd1
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64
+    flow configure 1 queues_number 4 queues_size 64
+    flow configure 2 queues_number 4 queues_size 64
+    port start all
+    set verbose 1
+  result: '(^Port [012]:){3}'
+
+pmd2: &pmd2
+  command: |
+    set raw_decap 0 eth / ipv6 / end_set
+    set raw_encap 0 eth src is 11:22:33:44:55:66 dst is aa:bb:cc:dd:ee:aa type is 0x0800 has_vlan is 0 / end_set
+
+pmd3: &pmd3
+  command: |
+    flow actions_template 0 create transfer actions_template_id 1 template raw_decap / raw_encap size 14 / represented_port / end mask raw_decap / raw_encap size 14 / represented_port / end
+    flow pattern_template 0 create transfer pattern_template_id 1 template eth / ipv6 / end
+    flow template_table 0 create transfer table_id 1 group 0 priority 0 rules_number 1 pattern_template 1 actions_template 1
+  result: 'Template table #1 created'
+
+phase1: &phase1
+  name: PHASE1
+  pmd@a1: [ *pmd1, *pmd2, *pmd3 ]
+
+flow:
+  -
+    phases: [ *phase1 ]
+    repeat: 1
