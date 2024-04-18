@@ -1,0 +1,53 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i'
+  setup: ['validate-flex --pci pci0',
+          'shell sysctl -w vm.nr_hugepages=4096']
+scapy@b1:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+
+pmd1: &pmd1
+  command: flow flex_item create 0 0 /var/run/dpdk-utest/ecpri.json
+  result:  'created flex item \#0'
+
+pmd2: &pmd2
+  command: set flex_pattern 0 is E82C01
+  result: 'created pattern \#0'
+
+pmd3: &pmd3
+  command: |
+    flow create 0 ingress pattern eth type is 0xAEFE / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth type is 0xAEFE / flex item is 0 pattern is 0 / end actions mark id 0x42 / rss / end
+    flow create 0 ingress group 1 priority 3 pattern eth / end actions mark id 0xfac / rss / end
+  result: '(Flow rule #\d created){3}'
+
+
+phase0: &phase0
+  name: CONFIGURATION
+  pmd@a1: [ *pmd0, *pmd1, *pmd2 ]
+  scapy@b1: |
+    ecpri=Ether(dst='11:00:00:00:00:11', type=0xaefe)/Raw(b'\xe8\x2c\x01')
+    bad_ecpri=Ether(dst='22:00:00:00:00:22', type=0xaefe)/Raw(b'\xe8\x3c\x01')
+
+phase1: &phase1
+  name: SEND
+  pmd@a1: [*pmd3]
+  scapy@b1: |
+    sendp(ecpri, iface=pf0)
+    sendp(bad_ecpri, iface=pf0)
+  result:
+    pmd@a1: {'and': ['FDIR matched ID=0x42', 'FDIR matched ID=0xfac']}
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+
+  -
+    phases: [ *phase1 ]
+    repeat: 1

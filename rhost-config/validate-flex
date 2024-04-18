@@ -1,0 +1,42 @@
+#! /bin/bash
+
+function usage () {
+    echo "usage: $0 --pci PCI"
+}
+
+if test $# -ne 2; then
+    usage "$0"
+    exit 255
+fi
+
+while test $# -gt 0; do
+    case "$1" in
+    '--pci')
+        pci=$2
+        shift; shift
+        ;;
+    *)
+        usage "0"
+        echo "invalid parameters: $*"
+        exit 255
+    esac
+done
+
+if test ! -e /sys/bus/pci/devices/$pci; then
+    echo "$0: invalid PCI: $pci"
+    return 255
+fi
+
+mlxconfig -d $pci q | egrep -q 'FLEX_PARSER_PROFILE_ENABLE[[:space:]]{1,}4'
+if test $? -ne 0; then
+    echo "$0: wrong FLEX_PARSER_PROFILE_ENABLE value"
+    exit 255
+fi
+
+mlxconfig -d $pci q | egrep  'PROG_PARSE_GRAPH[[:space:]]{1,}True'
+if test $? -ne 0; then
+    echo "$0: wrong PROG_PARSE_GRAPH value"
+    exit 255
+fi
+
+exit 0

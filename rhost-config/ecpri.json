@@ -1,0 +1,15 @@
+
+{"tunnel" : "FLEX_TUNNEL_MODE_SINGLE",
+"next_header": { "field_mode": "FIELD_MODE_FIXED","field_base":32},
+"next_protocol": {},
+"sample_data": [
+{"field_mode": "FIELD_MODE_FIXED", "field_size": 4, "field_base": 0},
+{ "field_mode": "FIELD_MODE_FIXED", "field_size": 3, "field_base": 4},
+{ "field_mode": "FIELD_MODE_FIXED", "field_size": 1, "field_base": 7},
+{ "field_mode": "FIELD_MODE_FIXED", "field_size": 16, "field_base": 8},
+{ "field_mode": "FIELD_MODE_FIXED", "field_size": 16, "field_base": 16}
+],
+"input_link": [
+{"item": "eth type is 0xaefe"}
+]
+}
