@@ -185,6 +185,10 @@ pub fn rsh_exec(rhost:&RHost, cmd:&str) -> (String, i32) {
     let mut output = String::new();
     let mut channel = rsh_connect(rhost);
     rsh_command(&mut channel, cmd);
+    if channel.eof() {
+        log::info!(target: &log_target(&rhost.hostname), "connection termnated");
+        return ("".to_string(), 1)
+    }
     loop {
         let mut buffer: [u8; 1024] = [0; 1024];
         match channel.read(&mut buffer) {

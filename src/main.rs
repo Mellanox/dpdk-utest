@@ -62,9 +62,9 @@ pub trait Ops {
 
     fn do_command(&mut self, cmd:&str) {
         rsh::rsh_write(&mut self.channel(), format!("{cmd}\n").as_str());
-        self.wait_cmd_completion();
+        self.wait_cmd_completion(cmd);
     }
-    fn wait_cmd_completion(&mut self) {
+    fn wait_cmd_completion(&mut self, cmd:&str) {
         let mut miss_count = 0;
         let delim = format!("{}$", self.prompt());
         let delay = time::Duration::from_millis(10);
@@ -84,7 +84,7 @@ pub trait Ops {
                     }
                 }
             }
-            log::trace!(target:&log_target(&self.tag().app), "waiting for command completion");
+            log::trace!(target:&log_target(&self.tag().app), "waiting for command completion\n{cmd}");
             thread::sleep(delay); // wait for command to complete
         }
     }
