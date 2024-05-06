@@ -1,0 +1,128 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci1,dv_flow_en=2,representor=vf\[0-16\] -- -i'
+    setup: [ "config-fdb --pci pci1 --vf 16",
+             "shell sysctl -w vm.nr_hugepages=1024"]
+
+scapy@a1:
+    agent: scapy
+
+scapy@b1:
+    agent: scapy
+
+pmd0: &pmd0
+    command: |
+        show port summary all
+#    result: '(^[1234].*_representor){4}'
+
+pmd1: &pmd1
+    command: |
+        port stop all
+        flow configure 0 queues_number 4 queues_size 64
+        flow configure 1 queues_number 4 queues_size 64
+        flow configure 2 queues_number 4 queues_size 64
+        flow configure 3 queues_number 4 queues_size 64
+        flow configure 4 queues_number 4 queues_size 64
+        flow configure 5 queues_number 4 queues_size 64
+        flow configure 6 queues_number 4 queues_size 64
+        flow configure 7 queues_number 4 queues_size 64
+        flow configure 8 queues_number 4 queues_size 64
+        flow configure 9 queues_number 4 queues_size 64
+        flow configure 10 queues_number 4 queues_size 64
+        flow configure 11 queues_number 4 queues_size 64
+        flow configure 12 queues_number 4 queues_size 64
+        flow configure 13 queues_number 4 queues_size 64
+        flow configure 14 queues_number 4 queues_size 64
+        flow configure 15 queues_number 4 queues_size 64
+        flow configure 16 queues_number 4 queues_size 64
+        port start all
+        start
+        set verbose 1
+#    result: '(^Port [01234]:) '
+
+pmd2: &pmd2
+    command: |
+        set sample_actions 1 represented_port ethdev_port_id 1 / end
+        set sample_actions 2 represented_port ethdev_port_id 2 / end
+        set sample_actions 3 represented_port ethdev_port_id 3 / end
+        set sample_actions 4 represented_port ethdev_port_id 4 / end
+        
+        set sample_actions 5 represented_port ethdev_port_id 5 / end
+        set sample_actions 6 represented_port ethdev_port_id 6 / end
+        set sample_actions 7 represented_port ethdev_port_id 7 / end
+        set sample_actions 8 represented_port ethdev_port_id 8 / end
+        
+        set sample_actions 9 represented_port ethdev_port_id 9 / end
+        set sample_actions 10 represented_port ethdev_port_id 10 / end
+        set sample_actions 11 represented_port ethdev_port_id 11 / end
+        set sample_actions 12 represented_port ethdev_port_id 12 / end
+        
+        set sample_actions 13 represented_port ethdev_port_id 13 / end
+        set sample_actions 14 represented_port ethdev_port_id 14 / end
+        set sample_actions 15 represented_port ethdev_port_id 15 / end
+        set sample_actions 16 represented_port ethdev_port_id 16 / end
+
+        flow indirect_action 0 create transfer list actions sample ratio 1 index 1 / sample ratio 1 index 2 / sample ratio 1 index 3 / sample ratio 1 index 4 / sample ratio 1 index 5 / sample ratio 1 index 6 / sample ratio 1 index 7 /  sample ratio 1 index 8 / sample ratio 1 index 9 / sample ratio 1 index 10 / sample ratio 1 index 11 / sample ratio 1 index 12 / sample ratio 1 index 13 / sample ratio 1 index 14 / sample ratio 1 index 15 /  sample ratio 1 index 16 / jump group 0xcaca / end
+pmd3: &pmd3
+    command: |
+        # FDB: redirect *all* UDP to group 1
+        flow pattern_template 0 create transfer pattern_template_id 0 template eth / ipv4 / udp / end
+        flow actions_template 0 create transfer actions_template_id 0 template jump / end mask jump group 0 / end
+        flow template_table 0 create table_id 0 transfer group 0 priority 0 rules_number 4 pattern_template 0 actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions jump group 1 / end
+        flow pull 0 queue 0
+      
+        # FDB: activate mirror
+        flow actions_template 0 create transfer actions_template_id 10 template indirect_list handle 0 / end mask indirect_list / end
+        flow template_table 0 create table_id 10 transfer group 1 priority 0 rules_number 4 pattern_template 0 actions_template 10
+        flow queue 0 create 0 template_table 10 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions indirect_list handle 0 / end
+        flow pull 0 queue 0
+      
+      
+        #FDB: redirect original packet to the first representor
+        flow actions_template 0 create transfer actions_template_id 100 template represented_port / end mask represented_port ethdev_port_id 0 / end
+        flow template_table 0 create table_id 100 transfer group 0xcaca priority 0 rules_number 4 pattern_template 0 actions_template 100
+        flow queue 0 create 0 template_table 100 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / end actions represented_port ethdev_port_id 1 / end
+        flow pull 0 queue 0
+    result: '(0 failed, 1 succeeded){3}'
+
+phase0: &phase0
+    name: config
+    pmd@a1: [ *pmd0, *pmd1, *pmd2, *pmd3 ]
+    scapy@a1: |
+        sniff0 = AsyncSniffer(iface=pf1vf2, filter='udp', \
+                prn=lambda x: print('CAPTURE: ' + pf1vf0 + ': '+ x.summary()))
+        sniff2 = AsyncSniffer(iface=pf1vf2, filter='udp', \
+                prn=lambda x: print('CAPTURE: ' + pf1vf2 + ': '+ x.summary()))
+        sniff3 = AsyncSniffer(iface=pf1vf3, filter='udp', \
+                prn=lambda x: print('CAPTURE: ' + pf1vf3 + ': '+ x.summary()))
+    scapy@b1:  |
+        p200=Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*172)
+
+phase1: &phase1
+    name: send
+    scapy@a1: |
+        sniff0.start()
+        sniff2.start()
+        sniff3.start()
+    scapy@b1:  sendp(p200, iface=pf1, count=1, verbose=1)
+
+phase2: &phase2
+    name: test
+    scapy@a1: |
+        r0=sniff0.stop()
+        r1=sniff2.stop()
+        r2=sniff3.stop()
+        sum=len(r0[UDP]) + len(r1[UDP]) + len(r2[UDP])
+        print('Captured packets number: ' +  str(sum))
+    result:
+        scapy@a1: 'Captured packets number: 3'
+
+flow:
+    -
+        phases: [ *phase0 ]
+        repeat: 1
+
+    -
+        phases: [ *phase1, *phase2 ]
+        repeat: 1
