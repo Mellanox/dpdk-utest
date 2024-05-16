@@ -35,6 +35,7 @@ tests/nta/count_age/test-hws2-nic-age_cfg-3-dv2.yaml
 tests/nta/count_age/test-hws2-nic-count_no_cfg-3-dv2.yaml
 tests/nta/count_age/test-hws2-nic-count_cfg-3-dv2.yaml
 tests/nta/count_age/test-hws2-nic-age_no_cfg-3-dv2.yaml
+tests/nta/CT/ct_item.yaml
 '
 opt_silent='no'
 opt_verbose='no'

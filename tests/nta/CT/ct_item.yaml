@@ -1,0 +1,33 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: ["shell sysctl -w vm.nr_hugepages=4096"]
+
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+    set conntrack com peer 1 is_orig 1 enable 1 live 1 sack 1 cack 0 last_dir 0 liberal 0 state 1 max_ack_win 7 r_lim 5 last_win 510 last_seq 2632987379 last_ack 2532480967 last_end 2632987379 last_index 0x8
+    set conntrack orig scale 7 fin 0 acked 1 unack_data 0 sent_end 2632987379 reply_end 2633016339 max_win 28960 max_ack 2632987379
+    set conntrack rply scale 7 fin 0 acked 1 unack_data 0 sent_end 2532480967 reply_end 2532546247 max_win 65280 max_ack 2532480967
+    flow indirect_action 0 create ingress action conntrack / end
+  result: 'Indirect action #0 created'
+
+var1: &ref_var1
+  command: 'flow create 0 group 3 ingress pattern eth / ipv4 / tcp / end actions indirect 0 / jump group 5 / end'
+  result: 'Flow rule \#0 created'
+
+var2: &ref_var2
+  command: 'flow create 0 group 5 ingress pattern eth / ipv4 / tcp / conntrack is 1 / end actions queue index 5 / end'
+  result: 'Flow rule \#1 created'
+
+
+phase0: &ref_phase0
+    name: TEST
+    pmd@a1: [ *ref_var0, *ref_var1, *ref_var2 ]
+
+flow:
+    -
+        phases: [ *ref_phase0 ]
+        repeat: 1
