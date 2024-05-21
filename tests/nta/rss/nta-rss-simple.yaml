@@ -1,0 +1,24 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+    setup: ["shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+    flow create 0 ingress group 1 pattern eth / end actions  rss / end
+
+phase0: &ref_phase0
+    name: CONFIGURATION
+    pmd@a1: [ *ref_var0 ]
+
+
+
+flow:
+    -
+        phases: [ *ref_phase0 ]
+        repeat: 1
