@@ -15,7 +15,7 @@ pmd0: &ref_pmd0
         port stop 2
         port stop 1
         port stop 0
-        flow configure 0 queues_number 4 queues_size 64 conn_tracks_number 4
+        flow configure 0 queues_number 4 queues_size 64 counters_number 4
         port start all
         start
         set verbose 1
