@@ -1,0 +1,34 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+    setup: ["shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+    agent: scapy
+
+var0: &ref_var0
+  command: |
+    start
+    set verbose 1
+    flow indirect_action 0 create action_id 10 ingress action count / end
+    flow indirect_action 0 create action_id 11 ingress action rss queues 1 end  / end
+    flow create 0 ingress group 0 pattern eth / ipv6 / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / ipv6 / end actions indirect 10 / indirect 11 / end
+
+phase0: &ref_phase0
+    name: CONFIGURATION
+    pmd@a1: [ *ref_var0 ]
+    scapy@b1: |
+      tcp6 = Ether(src='aa:aa:aa:aa:aa:aa', dst='22:22:22:22:22:22')/IPv6(src='::aaaa', dst='::bbbb')/TCP(sport=202, dport=5678)/Raw('== TEST ==')
+
+tcp6: &ref_tcp6
+  name: SEND and VALIDATE tcp6
+  scapy@b1: |
+    sendp(tcp6, iface=pf0)
+  result:
+    pmd@a1: 'RSS hash=0xbb783958'
+
+flow:
+    -
+        phases: [ *ref_phase0, *ref_tcp6 ]
+        repeat: 1
