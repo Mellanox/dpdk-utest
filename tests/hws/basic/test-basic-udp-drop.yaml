@@ -1,0 +1,62 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i'
+  setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+  cmd: [ 'shell ip link set up dev pf0']
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64
+    port start 0
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+pattern: &pattern
+  command: |
+    flow pattern_template 0 create ingress relaxed no pattern_template_id 0 template eth has_vlan mask 0xf / ipv4 / udp src mask 0x1 / end
+  result: 'Pattern template #0 created'
+
+action: &action
+  command: |           
+    flow actions_template 0 create ingress actions_template_id 0 template drop / end mask drop / end
+  result: 'Actions template #0 created'
+
+table: &table
+  command: |
+    flow template_table 0 create table_id 0 ingress group 0 priority 0 rules_number 1 pattern_template 0 actions_template 0
+  result: 'Template table #0 created'
+
+fq: &fq
+  command: |
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth has_vlan spec 0x0 / ipv4 / udp src spec 0x1 / end actions drop / end
+    flow pull 0 queue 0
+  results: {'and': {['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations (0 failed, 1 succeeded)']}}
+
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *pattern, *action, *table, *fq ]
+  scapy@b1: |
+    p_ok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IP(src='1.1.1.1', dst='1.1.1.2')/UDP(sport=1, dport=1001)/Raw('==test==')
+    p_nok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/Dot1Q(vlan=42)/IP(src='1.1.1.1', dst='1.1.1.2')/UDP(sport=10, dport=1001)/Raw('==test==')
+
+phase1: &phase1
+  name: send OK
+  scapy@b1:  |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+    sendp(p_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 0: received 1 packets){1}'
+
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
+
+
