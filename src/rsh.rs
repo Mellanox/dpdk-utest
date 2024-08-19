@@ -24,6 +24,7 @@ fn continue_after_error(err:&io::Error) -> bool {
 
 const RSH_READ_MAX_DURATION:time::Duration = time::Duration::from_millis(350);
 const RSH_READ_IDLE_TIMEOUT:time::Duration = time::Duration::from_millis(10);
+const RSH_BOOT_TIMEOUT:time::Duration = time::Duration::from_millis(1000);
 
 pub fn rsh_read(channel: &mut Channel) -> Result<String, ssh2::Error>  {
     let mut end = SystemTime::now().add(RSH_READ_MAX_DURATION);
@@ -170,8 +171,20 @@ pub fn rsh_send_file(rhost:&RHost, local:&Path, remote:&Path) {
 }
 
 pub fn rsh_connect(rhost:&RHost) -> Channel {
-    let session = rsh_session(rhost);
-    let mut ch = ssh2_nb(|| session.channel_session()).unwrap();
+    let mut ch;
+    loop {
+        let session = rsh_session(rhost);
+        match ssh2_nb(|| session.channel_session()) {
+            Some(vc) => {
+                ch = vc;
+                break;
+            }
+            None => {
+                thread::sleep(RSH_BOOT_TIMEOUT);
+                continue
+            }
+        }
+    }
     ssh2_nb(|| ch.handle_extended_data(ExtendedData::Merge));
     ssh2_nb(|| ch.request_pty("vt100", None, None));
     ch
