@@ -10,6 +10,7 @@ pub struct CmdLine {
     pub silent:bool,
     pub show_commands:bool,
     pub reuse_conifiguration:bool,
+    pub loopback:bool,
 }
 
 impl Default for CmdLine {
@@ -23,6 +24,7 @@ impl Default for CmdLine {
             silent: false,
             show_commands: false,
             reuse_conifiguration: false,
+            loopback: false,
         }
     }
 }
@@ -80,6 +82,11 @@ impl CmdLine {
                 .required(false)
                 .action(ArgAction::SetTrue)
                 .help("show test commands and exit"))
+            .arg(Arg::new("loopback")
+                .long("loopback")
+                .required(false)
+                .action(ArgAction::SetTrue)
+                .help("loopback setup"))
             ;
         let params = cmd.get_matches();
 
@@ -100,6 +107,7 @@ impl CmdLine {
             silent: *params.get_one::<bool>("silent").unwrap(),
             show_commands: *params.get_one::<bool>("show").unwrap(),
             reuse_conifiguration: *params.get_one::<bool>("fast").unwrap(),
+            loopback: *params.get_one::<bool>("loopback").unwrap(),
         }
     }
 }

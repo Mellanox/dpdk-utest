@@ -722,6 +722,10 @@ impl Inputs {
     pub fn try_reuse_config(&self) -> bool {
         self.cmdline.reuse_conifiguration &&  self.hosts.contains_key("interfaces")
     }
+
+    pub fn loopback(&self) -> bool {
+        self.cmdline.loopback
+    }
 }
 
 fn main() {
