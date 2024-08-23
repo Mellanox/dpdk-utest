@@ -324,6 +324,33 @@ impl<'a> Ops for Scapy<'a> {
     fn clear_output(&mut self) { self.core.output.clear(); }
 }
 
+struct Shell<'a> {
+    core: Core<'a>,
+}
+
+impl<'a> Shell<'a> {
+    fn new(tag:&'a AppTag) -> Shell<'a> {
+        let mut ch:Channel = rsh::rsh_connect(tag.rhost);
+        rsh::rsh_command(&mut ch, &mut "bash");
+        Self {
+            core: Core::new(tag, ">>>", ch),
+        }
+    }
+}
+
+impl<'a> Ops for Shell<'a> {
+    fn init(&mut self) {
+        self.do_command("export PS1='>>>'");
+    }
+
+    fn tag(&self) -> &AppTag<'a> { &self.core.tag }
+    fn prompt(&self) -> &String { &self.core.prompt }
+    fn channel(&mut self) -> &mut Channel { &mut self.core.channel }
+    fn output(&self) -> &String { &self.core.output }
+    fn mut_output(&mut self) -> &mut String { &mut self.core.output }
+    fn clear_output(&mut self) { self.core.output.clear(); }
+}
+
 pub fn init_apps<'a>(tags:&'a Tags<'a>, interfaces:&mut InterfaceDB, inputs:&Inputs) -> OpsDb<'a> {
     let need_host_config = !inputs.try_reuse_config();
     let mut ops_db = OpsDb::new();
@@ -345,6 +372,11 @@ pub fn init_apps<'a>(tags:&'a Tags<'a>, interfaces:&mut InterfaceDB, inputs:&Inp
                 scapy.init_netdev(netdev_map);
                 Box::new(scapy)
             },
+            "shell" => {
+                let mut shell = Shell::new(&tag);
+                shell.init();
+                Box::new(shell)
+            }
             _ => panic!("unknown agent: \'{}\'", tag.agent)
         };
         ops_db.insert(tag.app.clone(), app_ops);
