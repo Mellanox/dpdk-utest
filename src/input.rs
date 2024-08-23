@@ -11,6 +11,7 @@ pub struct CmdLine {
     pub show_commands:bool,
     pub reuse_conifiguration:bool,
     pub loopback:bool,
+    pub reset:bool,
 }
 
 impl Default for CmdLine {
@@ -25,6 +26,7 @@ impl Default for CmdLine {
             show_commands: false,
             reuse_conifiguration: false,
             loopback: false,
+            reset: false,
         }
     }
 }
@@ -87,6 +89,11 @@ impl CmdLine {
                 .required(false)
                 .action(ArgAction::SetTrue)
                 .help("loopback setup"))
+            .arg(Arg::new("reset")
+                .long("reset")
+                .required(false)
+                .action(ArgAction::SetTrue)
+                .help("reset hosts"))
             ;
         let params = cmd.get_matches();
 
@@ -108,6 +115,7 @@ impl CmdLine {
             show_commands: *params.get_one::<bool>("show").unwrap(),
             reuse_conifiguration: *params.get_one::<bool>("fast").unwrap(),
             loopback: *params.get_one::<bool>("loopback").unwrap(),
+            reset: *params.get_one::<bool>("reset").unwrap(),
         }
     }
 }

@@ -655,7 +655,8 @@ pub fn load_test_interfaces(rhosts:&RHosts, inputs:&Inputs) -> InterfaceDB {
         if inputs.hosts.contains_key("interfaces") {
             trim_hosts_file(Path::new(&inputs.cmdline.hosts_file))
         }
-        reset_test_hosts(rhosts, &mlx_dev.0);
+        if inputs.reset() { reset_test_hosts(rhosts, &mlx_dev.0); }
+        else { log::debug!(target: "config", "skip host reset"); }
         map_intefaces(&mlx_dev.1[0].as_str(), &rhosts)
     }
 }
@@ -726,6 +727,7 @@ impl Inputs {
     pub fn loopback(&self) -> bool {
         self.cmdline.loopback
     }
+    pub fn reset(&self) -> bool { self.cmdline.reset }
 }
 
 fn main() {
