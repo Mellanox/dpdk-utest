@@ -122,7 +122,7 @@ pub trait Ops {
     }
 
     fn try_match_output(&mut self, expected:&str) -> bool {
-        let output= &self.output();
+        let output= self.output();
         match xregex::xregex(output, expected) {
             Some(verdict) => { return verdict },
             None => ()
