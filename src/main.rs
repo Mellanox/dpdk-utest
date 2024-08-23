@@ -464,6 +464,7 @@ fn reset_host_configuration(rhost:&RHost, mtdev:&str) {
     let (_, status) = rsh_exec(rhost, "test -e /workspace");
     log::info!(target: &log_target(&rhost.hostname), "configuration reset start");
     if status != 0 {  // physical host
+        log::info!(target: &log_target(&rhost.hostname), "MT dev: {}", mtdev);
         let (_, status) = rsh_exec(rhost, "mst restart");
         if status != 0 { panic!("{}: failed to restart MST", rhost.hostname); }
         let (_, status) =
@@ -471,7 +472,12 @@ fn reset_host_configuration(rhost:&RHost, mtdev:&str) {
                      &format!("mlxfwreset -d /dev/mst/{mtdev}_pciconf0 r --yes --level 3"));
         if status != 0 { panic!("{}: failed to reset FW", rhost.hostname); }
         let (_, status) = rsh_exec(rhost, "/etc/init.d/openibd force-restart");
-        if status != 0 { panic!("{}: failed to restart MLX OFED", rhost.hostname); }
+        if status != 0 {
+            log::info!(target: &log_target(&rhost.hostname), "failed to restart MLX OFED");
+            if false {
+                panic!("{}: failed to restart MLX OFED", rhost.hostname);
+            }
+        }
     } else { // Linux Cloud host
         log::info!(target: &log_target(&rhost.hostname), "reboot ...");
         let delay = time::Duration::from_millis(500);
@@ -513,10 +519,13 @@ fn map_host_interfaces(rhost:&RHost, pci:&str) -> (InterfaceMap, InterfaceMap) {
     let mut pci_map:InterfaceMap = InterfaceMap::new();
     let mut netdev_map:InterfaceMap = InterfaceMap::new();
 
+    log::info!(target: &log_target(&rhost.hostname), "map interfaces on PCI {}", pci);
     let pci_partial = &pci[..7];
     let (devlink_output, status) =
         rsh_exec(rhost, &format!("devlink port | grep {pci_partial}\n"));
-    if status != 0 { panic!("{}: failed to fetch devlink info", rhost.hostname) }
+    if status != 0 {
+        panic!("{}: failed to fetch devlink info", rhost.hostname)
+    }
     for (_, [pf_pci, pf_netdev, pf_port]) in
     pf_re.captures_iter(&devlink_output).map(|caps| caps.extract()) {
         let pf_name = format!("pci{pf_port}");
@@ -551,10 +560,12 @@ fn map_host_interfaces(rhost:&RHost, pci:&str) -> (InterfaceMap, InterfaceMap) {
     (pci_map, netdev_map)
 }
 
-fn map_intefaces(pci:&str, rhosts:&RHosts) -> InterfaceDB {
+fn map_intefaces(rhosts:&RHosts, inputs:&Inputs) -> InterfaceDB {
     let mut imap:InterfaceDB = HashMap::new();
 
     rhosts.iter().for_each(|rhost|{
+        let mlx_dev = fetch_mtdev(rhost, inputs.mt_dev());
+        let pci= mlx_dev.1[0].as_str();
         let interfaces = map_host_interfaces(rhost, pci);
         imap.insert(rhost.hostname.clone(), interfaces);
 
@@ -648,33 +659,38 @@ pub fn load_test_interfaces(rhosts:&RHosts, inputs:&Inputs) -> InterfaceDB {
     if inputs.try_reuse_config() {
         load_interfaces(inputs.hosts.get("interfaces").unwrap().as_mapping().unwrap())
     } else {
-        let mlx_dev = fetch_mtdev(&rhosts, &inputs.cmdline);
         if inputs.cmdline.reuse_conifiguration {
             log::info!(target: "conifg", "ignore fast execution: no \"interfaces\" tag.");
         }
         if inputs.hosts.contains_key("interfaces") {
             trim_hosts_file(Path::new(&inputs.cmdline.hosts_file))
         }
-        if inputs.reset() { reset_test_hosts(rhosts, &mlx_dev.0); }
-        else { log::debug!(target: "config", "skip host reset"); }
-        map_intefaces(&mlx_dev.1[0].as_str(), &rhosts)
+        if inputs.reset() {
+            let mlx_dev = fetch_mtdev(&rhosts[0], inputs.mt_dev());
+            reset_test_hosts(rhosts, &mlx_dev.0);
+        } else { log::debug!(target: "config", "skip host reset"); }
+        map_intefaces(rhosts, inputs)
     }
 }
 
-pub fn fetch_mtdev(rhosts:&RHosts, cmdline:&CmdLine) -> MlxDev {
-    let mst_status = mst_status(&rhosts[0]);
-
+pub fn fetch_mtdev(rhost:&RHost, mt_opt:Option<&str>) -> MlxDev {
+    let mst_status = mst_status(rhost);
     assert_ne!(mst_status.len(), 0);
-    let mt = if cmdline.mlx_dev.len() > 0 {
-        if mst_status.contains_key(&cmdline.mlx_dev) {
-            cmdline.mlx_dev.to_string()
-        } else {
-            log::info!(target: "config", "invalid MT device {}.", cmdline.mlx_dev);
-            std::process::exit(255);
+
+    let mt = match mt_opt {
+        Some(mlx_dev) => {
+            if mst_status.contains_key(mlx_dev) {
+                mlx_dev
+            } else {
+                log::warn!(target: "config", "invalid MT device host:{} md_dev{}.", rhost.hostname, mlx_dev);
+                std::process::exit(255);
+            }
         }
-    } else {
-        mst_status.keys().last().unwrap().to_string()
-    };
+        None => {
+            mst_status.keys().last().unwrap()
+        }
+    }.to_string();
+
     let pci = mst_status[&mt].clone();
     log::info!(target: "config", "MT device: {:?}", (&mt, &pci));
     (mt, pci)
@@ -728,6 +744,11 @@ impl Inputs {
         self.cmdline.loopback
     }
     pub fn reset(&self) -> bool { self.cmdline.reset }
+
+    pub fn mt_dev(&self) -> Option<&str> {
+        if self.cmdline.mlx_dev.len() > 0 { Some(self.cmdline.mlx_dev.as_str()) }
+        else { None }
+    }
 }
 
 fn main() {
