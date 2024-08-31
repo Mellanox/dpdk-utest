@@ -1,0 +1,61 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=3 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+  setup: [ 'shell ip link set up dev pf0']
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64
+    port start 0
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 0 template eth / end
+    flow actions_template 0 create ingress actions_template_id 0 template jump  / end mask jump  / end
+    flow template_table 0 create group 0 priority 0 ingress table_id 0 rules_number 1 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / end actions jump group 1 / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+fg1: &fg1
+  command: |
+    flow pattern_template 0 create ingress relaxed no pattern_template_id 1 template vxlan vni mask 0xffffff flags mask 0xff / end
+    flow actions_template 0 create ingress actions_template_id 1 template rss / end mask unmasked rss / end
+    flow template_table 0 create group 1 priority 0 ingress table_id 1 rules_number 1 pattern_template 1 actions_template 1
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern vxlan vni spec 0x31 flags spec 0x12 / end actions rss queues 3 end / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #1 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0, *fg1 ]
+  scapy@b1: |
+    pkt_ok=Ether(src='22:00:00:00:00:22', dst='bb:00:00:00:00:bb')/IP(src='1.1.1.1', dst='1.1.1.2')/UDP(sport=1)/VXLAN(vni=0x31, flags=0x12)/Raw('==test==')
+    pkt_nok=Ether(src='55:00:00:00:00:55', dst='bb:00:00:00:00:bb')/IP(src='1.1.1.1', dst='1.1.1.2')/UDP(sport=1)/VXLAN(vni=0x31, flags=0x0)/Raw('==test==')
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1:
+    sendp(pkt_ok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: {'and':['src=22:00:00:00:00:22', 'dst=BB:00:00:00:00:BB', 'RSS hash=0xf5bf26e9', 'RSS queue=0x3']}
+
+phase2: &phase2
+  name: send and miss
+  scapy@b1:
+    sendp(pkt_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: {'not': ['src=55:00:00:00:00:55 - dst=BB:00:00:00:00:BB']}
+
+flow:
+  -
+    phases: [ *phase0, *phase1, *phase2 ]
+    repeat: 1
