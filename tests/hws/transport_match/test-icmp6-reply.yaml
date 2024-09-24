@@ -1,0 +1,89 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+  cmd: [ 'shell ip link set up dev pf0']
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64
+    port start 0
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+#1 rules:
+#1: jump group 0 to group 2
+pattern0: &pattern0
+  command: |
+    flow pattern_template 0 create ingress pattern_template_id 2 template eth / end
+  result: 'Pattern template #2 created'
+
+action0: &action0
+  command: |
+    flow actions_template 0 create ingress actions_template_id 3 template jump / end mask jump / end  
+  result: 'Actions template #3 created'
+
+table0: &table0
+  command: |
+    flow template_table 0 create ingress table_id 3 group 0 priority 3 rules_number 4 pattern_template 2 actions_template 3 
+  result: 'Template table #3 created'
+
+fq0: &fq0
+  command: | 
+    flow queue 0 create 0 template_table 3 pattern_template 0 actions_template 0 postpone no pattern eth / end actions jump group 2 / end
+    flow pull 0 queue 0
+  results: {'and': ['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations (0 failed, 1 succeeded)']}
+
+#1 rules:
+#1: group 2, match on random and queue index 3
+pattern1: &pattern1
+  command: |
+    flow pattern_template 0 create ingress pattern_template_id 10000 template eth / ipv6 / icmp6 type mask 0xff / icmp6_echo_reply seq mask 0xf ident mask 0xf / end
+    result: 'Pattern template #10000 created'
+
+action1: &action1
+  command: |           
+    flow actions_template 0 create  ingress actions_template_id 10000 template queue / end mask queue / end
+  result: 'Actions template #10000 created'
+
+table1: &table1
+  command: |
+    flow template_table 0 create table_id 10000 group 2 priority 3 ingress rules_number 4 pattern_template 10000 actions_template 10000 
+  result: 'Template table #10000 created'
+
+#can also discard  icmp6 type matching in relaxed mode
+fq1: &fq1
+  command: |
+    flow queue 0 create 0 template_table 10000 pattern_template 0 actions_template 0 postpone no pattern eth / ipv6 / icmp6 type spec 129 / icmp6_echo_reply seq spec 1 ident spec 1 / end actions queue index 3 / end  
+    flow pull 0 queue 0
+  results: {'and': ['Flow rule #1 creation enqueued', 'Queue #0 pulled 1 operations (0 failed, 1 succeeded)']}
+
+
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *pattern0, *action0, *table0, *fq0, *pattern1, *action1, *table1, *fq1 ]
+  scapy@b1: |
+    p_ok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IPv6(dst='::bbbb')/ICMPv6EchoReply(id=1, seq=1)/Raw('==test==')
+    p_nok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IPv6(dst='::bbbb')/ICMPv6EchoReply(id=2, seq=2)/Raw('==test==')
+
+phase1: &phase1
+  name: send OK
+  scapy@b1:  |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+    sendp(p_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 3: received 1 packets){1}'
+
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
+
+
