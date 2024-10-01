@@ -72,20 +72,9 @@ phase0: &phase0
 phase1: &phase1
   name: send OK
   scapy@b1:  |
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
-    sendp(p_ok, iface=pf0, count=1, verbose=1)
+    sendp(p_ok, iface=pf0, count=12, verbose=1)
   result:
-    pmd@a1: '(port 0/queue 3: received 1 packets){1}'
+    pmd@a1: '(port 0/queue 3: received 1 packets)'
 
 
 flow:
