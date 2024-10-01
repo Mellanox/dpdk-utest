@@ -18,6 +18,8 @@ tests/nta/queue/test-hws2-nic-queue-3-dv1.yaml
 tests/nta/queue/test-hws2-nic-queue-3-dv2.yaml
 tests/nta/fdb/nta-fdb-cmd.yaml
 tests/nta/fdb/nta-fdb-cmd_w_cfg.yaml
+tests/nta/fdb/nta-fdb-action-split-queue.yaml
+tests/nta/fdb/nta-fdb-action-split-rss.yaml
 tests/nta/rss/nta-rss-simple.yaml
 tests/nta/rss/nta-indirect.yaml
 tests/nta/rss/nta-rss-expand.yaml
