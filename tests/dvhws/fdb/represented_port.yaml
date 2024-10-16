@@ -1,0 +1,129 @@
+#
+# Match PORT => Fwd port
+#
+# Rule 1: Match uplink -> Fwd pf0vf0
+# Rule 2: Match pf0vf0 -> Fwd pf0vf1
+# Rule 3: Match pf0vf1 -> Fwd uplink
+#
+# Assumes:
+#
+# - Full FDB access
+# - Flow isolation
+#
+
+pmd-dut-pf0:
+  agent: testpmd
+  cmd: >
+    dpdk-testpmd
+    -a pci0,dv_flow_en=3,representor=pf0vf0-1,fdb_def_rule_en=0,repr_matching_en=0
+    --
+    -i --flow-isolate-all
+  setup:
+    - "config-fdb --pci pci0 --vf 2"
+
+tg-scapy:
+  agent: scapy
+
+pf0vf0-scapy:
+  agent: scapy
+
+pf0vf1-scapy:
+  agent: scapy
+
+configure_proxy_port: &configure_proxy_port
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64
+    port start all
+
+root_jump: &root_jump
+  command: |
+    flow pattern_template 0 create transfer relaxed yes pattern_template_id 1000 template end
+    flow actions_template 0 create transfer actions_template_id 1000 template jump group 1 / end mask jump group 1 / end
+    flow template_table 0 create group 0 priority 0 transfer table_id 1000 rules_number 2048 pattern_template 1000 actions_template 1000
+    flow queue 0 create 0 template_table 1000 pattern_template 0 actions_template 0 postpone yes pattern end actions jump / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)'
+
+match_port_and_fwd: &match_port_and_fwd
+  command: |
+    flow pattern_template 0 create transfer relaxed yes pattern_template_id 2000 template represented_port ethdev_port_id mask 0xffff / end
+    flow actions_template 0 create transfer actions_template_id 2000 template represented_port ethdev_port_id 0 / end mask represented_port ethdev_port_id 0 / end
+    flow template_table 0 create group 1 priority 0 transfer table_id 2000 rules_number 2048 pattern_template 2000 actions_template 2000
+
+    flow queue 0 create 0 template_table 2000 pattern_template 0 actions_template 0 postpone yes pattern represented_port ethdev_port_id spec 0 / end actions represented_port ethdev_port_id 1 / end
+    flow queue 0 create 0 template_table 2000 pattern_template 0 actions_template 0 postpone yes pattern represented_port ethdev_port_id spec 1 / end actions represented_port ethdev_port_id 2 / end
+    flow queue 0 create 0 template_table 2000 pattern_template 0 actions_template 0 postpone yes pattern represented_port ethdev_port_id spec 2 / end actions represented_port ethdev_port_id 0 / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 3 succeeded)'
+
+setup_flows: &setup_flows
+  name: setup_flows
+  pmd-dut-pf0:
+    - *configure_proxy_port
+    - *root_jump
+    - *match_port_and_fwd
+
+send_from_external: &send_from_external
+  name: send_from_external
+  pf0vf0-scapy: |
+    sniff = AsyncSniffer(iface=pf0vf0, filter='udp and src port 1234')
+    sniff.start()
+  tg-scapy: |
+    pkt = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*100)
+    sendp(pkt, iface=pf0, count=1)
+
+capture_on_pf0vf0: &capture_on_pf0vf0
+  name: capture_on_pf0vf0
+  pf0vf0-scapy: |
+    captured = sniff.stop()
+    print(len(captured))
+  result:
+    pf0vf0-scapy: '1'
+
+send_from_pf0vf0: &send_from_pf0vf0
+  name: send_from_pf0vf0
+  pf0vf1-scapy: |
+    sniff = AsyncSniffer(iface=pf0vf1, filter='udp and src port 1234')
+    sniff.start()
+  pf0vf0-scapy: |
+    pkt = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*100)
+    sendp(pkt, iface=pf0vf0, count=1)
+
+capture_on_pf0vf1: &capture_on_pf0vf1
+  name: capture_on_pf0vf1
+  pf0vf1-scapy: |
+    captured = sniff.stop()
+    print(len(captured))
+  result:
+    pf0vf1-scapy: '1'
+
+send_from_pf0vf1: &send_from_pf0vf1
+  name: send_from_pf0vf1
+  tg-scapy: |
+    sniff = AsyncSniffer(iface=pf0, filter='udp and src port 1234')
+    sniff.start()
+  pf0vf1-scapy: |
+    pkt = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*100)
+    sendp(pkt, iface=pf0vf1, count=1)
+
+capture_on_tg: &capture_on_tg
+  name: capture_on_tg
+  tg-scapy: |
+    captured = sniff.stop()
+    print(len(captured))
+  result:
+    tg-scapy: '1'
+
+flow:
+  - phases:
+      - *setup_flows
+      - *send_from_external
+      - *capture_on_pf0vf0
+      - *send_from_pf0vf0
+      - *capture_on_pf0vf1
+      - *send_from_pf0vf1
+      - *capture_on_tg
+    repeat: 1
