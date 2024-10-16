@@ -1,0 +1,186 @@
+#
+# ingress:
+#
+# group 0 => all jump to group 1
+# group 0:
+# - if eth.dmac == DMAC1, then QUEUE 0
+# - if eth.dmac == DMAC2, then QUEUE 1
+# - else, DROP
+#
+# egress:
+#
+# group 0 => all jump to group 1
+# - if TX_QUEUE == 0, then do nothing
+# - if TX_QUEUE == 1, then do nothing
+# - else, then DROP
+#
+# Assumes:
+#
+# - Flow isolation
+#
+
+pmd@dut:
+  agent: testpmd
+  cmd: >
+    dpdk-testpmd
+    -a pci0,dv_flow_en=3
+    --
+    -i --rxq 4 --txq 4 --flow-isolate-all
+
+scapy@tg:
+  agent: scapy
+
+configure_proxy_port: &configure_proxy_port
+  command: |
+    port stop all
+    set promisc all off
+    set allmulti all off
+    port start all
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64
+    port start all
+
+configure_testpmd: &configure_testpmd
+  command: |
+    set fwd io
+    set verbose 7
+
+ingress_root_jump: &ingress_root_jump
+  command: |
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 1000 template end
+    flow actions_template 0 create ingress actions_template_id 1000 template jump group 1 / end mask jump group 1 / end
+    flow template_table 0 create group 0 priority 0 ingress table_id 1000 rules_number 1 pattern_template 1000 actions_template 1000
+    flow queue 0 create 0 template_table 1000 pattern_template 0 actions_template 0 postpone yes pattern end actions jump / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)'
+
+ingress_dmac_matches: &ingress_dmac_matches
+  command: |
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 1001 template eth dst mask ff:ff:ff:ff:ff:ff / end
+    flow actions_template 0 create ingress actions_template_id 1001 template queue index 0 / end mask queue index 0 / end
+    flow template_table 0 create group 1 priority 0 ingress table_id 1001 rules_number 2048 pattern_template 1001 actions_template 1001
+    flow queue 0 create 0 template_table 1001 pattern_template 0 actions_template 0 postpone yes pattern eth dst spec 00:00:00:aa:aa:aa / end actions queue index 0 / end
+    flow queue 0 create 0 template_table 1001 pattern_template 0 actions_template 0 postpone yes pattern eth dst spec 00:00:00:bb:bb:bb / end actions queue index 1 / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 2 succeeded)'
+
+ingress_default_drop: &ingress_default_drop
+  command: |
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 1002 template end
+    flow actions_template 0 create ingress actions_template_id 1002 template drop / end mask drop / end
+    flow template_table 0 create group 1 priority 1 ingress table_id 1002 rules_number 1 pattern_template 1002 actions_template 1002
+    flow queue 0 create 0 template_table 1002 pattern_template 0 actions_template 0 postpone yes pattern end actions drop / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)'
+
+egress_root_jump: &egress_root_jump
+  command: |
+    flow pattern_template 0 create egress relaxed yes pattern_template_id 2000 template end
+    flow actions_template 0 create egress actions_template_id 2000 template jump group 1 / end mask jump group 1 / end
+    flow template_table 0 create group 0 priority 0 egress table_id 2000 rules_number 1 pattern_template 1000 actions_template 1000
+    flow queue 0 create 0 template_table 2000 pattern_template 0 actions_template 0 postpone yes pattern end actions jump / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)'
+
+egress_txq_matches: &egress_txq_matches
+  command: |
+    flow pattern_template 0 create egress relaxed yes pattern_template_id 2001 template tx_queue tx_queue_value mask 0xffff / end
+    flow actions_template 0 create egress actions_template_id 2001 template end mask end
+    flow template_table 0 create group 1 priority 0 egress table_id 2001 rules_number 2048 pattern_template 2001 actions_template 2001
+    flow queue 0 create 0 template_table 2001 pattern_template 0 actions_template 0 postpone yes pattern tx_queue tx_queue_value spec 0 / end actions end
+    flow queue 0 create 0 template_table 2001 pattern_template 0 actions_template 0 postpone yes pattern tx_queue tx_queue_value spec 1 / end actions end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 2 succeeded)'
+
+egress_default_drop: &egress_default_drop
+  command: |
+    flow pattern_template 0 create egress relaxed yes pattern_template_id 2002 template end
+    flow actions_template 0 create egress actions_template_id 2002 template drop / end mask drop / end
+    flow template_table 0 create group 1 priority 1 egress table_id 2002 rules_number 1 pattern_template 2002 actions_template 2002
+    flow queue 0 create 0 template_table 2002 pattern_template 0 actions_template 0 postpone yes pattern end actions drop / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded)'
+
+setup_port: &setup_port
+  name: setup_port
+  pmd@dut:
+  - *configure_proxy_port
+
+setup_testpmd: &setup_testpmd
+  name: setup_testpmd
+  pmd@dut:
+  - *configure_testpmd
+
+setup_flows: &setup_flows
+  name: setup_flows
+  pmd@dut:
+  - *ingress_root_jump
+  - *ingress_dmac_matches
+  - *ingress_default_drop
+  - *egress_root_jump
+  - *egress_txq_matches
+  - *egress_default_drop
+
+start_testpmd: &start_testpmd
+  name: start_testpmd
+  pmd@dut:
+  - command: |
+      start
+
+verify_ok_dmac1: &verify_ok_dmac1
+  name: verify_ok_dmac1
+  scapy@tg: |
+    sniff = AsyncSniffer(iface=pf0, filter='inbound and udp and src port 1234')
+    sniff.start()
+
+    pkt = Ether(src='11:22:33:44:55:66', dst='00:00:00:aa:aa:aa')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*100)
+    sendp(pkt, iface=pf0, count=1, verbose = False)
+
+    captured = sniff.stop()
+    len(captured)
+  result:
+    scapy@tg: '1'
+
+verify_ok_dmac2: &verify_ok_dmac2
+  name: verify_ok_dmac2
+  scapy@tg: |
+    sniff = AsyncSniffer(iface=pf0, filter='inbound and udp and src port 1234')
+    sniff.start()
+
+    pkt = Ether(src='11:22:33:44:55:66', dst='00:00:00:bb:bb:bb')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*100)
+    sendp(pkt, iface=pf0, count=1, verbose = False)
+
+    captured = sniff.stop()
+    len(captured)
+  result:
+    scapy@tg: '1'
+
+verify_err_dmac: &verify_err_dmac
+  name: verify_err_dmac
+  scapy@tg: |
+    sniff = AsyncSniffer(iface=pf0, filter='inbound and udp and src port 1234')
+    sniff.start()
+
+    pkt = Ether(src='11:22:33:44:55:66', dst='00:00:00:cc:cc:cc')/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(sport=1234, dport=5678)/Raw('x'*100)
+    sendp(pkt, iface=pf0, count=1, verbose = False)
+
+    captured = sniff.stop()
+  result:
+    scapy@tg: '0'
+
+flow:
+- phases:
+  - *setup_port
+  - *setup_testpmd
+  - *setup_flows
+  - *start_testpmd
+  - *verify_ok_dmac1
+  - *verify_ok_dmac2
+  - *verify_err_dmac
+  repeat: 1
