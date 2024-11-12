@@ -1,0 +1,47 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=4096" ]
+
+scapy@b1:
+  agent: scapy
+  setup: [ 'shell ip link set up dev pf0']
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64
+    port start 0
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 0 template eth / ipv6 src mask 2001:db8::1 dst mask 2001:db8::2 tc mask 0x3 flow mask 0x12345 proto mask 17 hop mask 64 has_frag_ext mask 0xf / end
+    flow actions_template 0 create ingress actions_template_id 0 template queue  / end mask queue  / end
+    flow template_table 0 create group 0 priority 0 ingress table_id 0 rules_number 1 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv6 src spec 2001:db8::1 dst spec 2001:db8::2 tc spec 0x3 flow spec 0x12345 proto spec 17 hop spec 64 has_frag_ext spec 0 / end actions queue index 3 / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+# nh - Next Header: 17 for UDP
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0 ]
+  scapy@b1: |
+    pkt_ok=Ether(src='22:00:00:00:00:22', dst='bb:00:00:00:00:bb')/IPv6(src="2001:db8::1", dst="2001:db8::2",tc=0x3,fl=0x12345,nh=17,hlim=64, plen=128)/UDP(sport=1234, dport=5678)/Raw(b"X" * 100)
+    pkt_nok=Ether(src='55:00:00:00:00:55', dst='bb:00:00:00:00:bb')/IPv6(src="2001:db8::3", dst="2001:db8::4")/UDP(sport=1, dport=1001)/Raw('==test==')
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1: |
+    sendp(pkt_ok, iface=pf0, count=1, verbose=1)
+    sendp(pkt_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 3: received 1 packets){1}'
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
