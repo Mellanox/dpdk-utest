@@ -1,0 +1,12 @@
+
+{"tunnel" : "FLEX_TUNNEL_MODE_SINGLE",
+"next_header": { "field_mode": "FIELD_MODE_FIXED","field_base":64},
+"next_protocol": {},
+"sample_data": [
+{"field_mode": "FIELD_MODE_FIXED", "field_size": 32, "field_base": 0},
+{"field_mode": "FIELD_MODE_FIXED", "field_size": 32, "field_base": 32}
+],
+"input_link": [
+{"item": "eth type is 0xaefe"}
+]
+}
