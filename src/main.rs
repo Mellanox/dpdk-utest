@@ -527,9 +527,6 @@ fn reset_host_configuration(rhost:&RHost, mtdev:&str) {
 
 fn reset_host(rhost:RHost, mtdev:String) -> std::io::Result<()>{
     reset_host_configuration(&rhost, &mtdev);
-    let local_path = Path::new(LOCAL_SCRIPTS_PATH);
-    let remote_path = Path::new(REMOTE_SCRIPTS_PATH);
-    rsh_send_dir(&rhost, local_path, remote_path);
     Ok(())
 }
 
@@ -701,6 +698,12 @@ pub fn load_test_interfaces(rhosts:&RHosts, inputs:&Inputs) -> InterfaceDB {
             let mlx_dev = fetch_mtdev(&rhosts[0], inputs.mt_dev());
             reset_test_hosts(rhosts, &mlx_dev.0);
         } else { log::debug!(target: "config", "skip host reset"); }
+        log::debug!(target: "config", "copy config scripts");
+        let local_path = Path::new(LOCAL_SCRIPTS_PATH);
+        let remote_path = Path::new(REMOTE_SCRIPTS_PATH);
+        for rhost in rhosts {
+            rsh_send_dir(&rhost, local_path, remote_path);
+        }
         map_intefaces(rhosts, inputs)
     }
 }
