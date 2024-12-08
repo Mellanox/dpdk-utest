@@ -111,24 +111,31 @@ fn rsh_session(rhost:&RHost) -> Session {
     session
 }
 
-pub fn rsh_send_dir(rhost:&RHost, local:&Path, remote:&Path) {
-    let meta = match fs::metadata(local) {
-        Ok(v) => v,
-        Err(err) => panic!("invalid local entry {:?} err: {:?}", local, err)
-    };
-    if !meta.is_dir() { panic!("not a directory: {}", local.to_str().unwrap())}
+pub fn rsh_mkdir(rhost:&RHost, remote:&Path) {
     let (_, status ) = rsh_exec(rhost,
                                 &format!("mkdir -p {}", remote.to_str().unwrap()));
     if status != 0 {
         panic!("failed to create remote directory {}:{}", rhost.hostname, remote.to_str().unwrap())
     }
+}
+
+pub fn rsh_send_dir(rhost:&RHost, local:&Path, remote:&Path) {
+    match fs::metadata(local) {
+        Ok(v) => v,
+        Err(err) => panic!("invalid local entry {:?} err: {:?}", local, err)
+    };
+    rsh_mkdir(rhost, remote);
     let direntry = fs::read_dir(local).unwrap();
     direntry.for_each(|result| {
         match result {
             Ok(entry) => {
                 let basename = entry.file_name();
                 let remote_file = remote.join(Path::new(&basename));
-                rsh_send_file(rhost, &entry.path(), &remote_file);
+                if entry.metadata().unwrap().is_dir() {
+                    rsh_send_dir(rhost, &entry.path(), &remote_file);
+                } else {
+                    rsh_send_file(rhost, &entry.path(), &remote_file);
+                }
             },
             Err(e) => { panic!("failed to read directory {}:{:?}", local.to_str().unwrap(), e)}
         }
