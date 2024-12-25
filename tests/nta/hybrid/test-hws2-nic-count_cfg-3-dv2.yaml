@@ -1,0 +1,79 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: ["shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+#This test tests:
+#Jump from non template->template and oposite.
+#Diff priorities.
+#using counter on template and non template.
+
+#rule 0: template  match on  ipv4 src mask 192.168.1.1, jump to group 10
+#rule 1: non template match all, jump to group 9, priority 1
+#rule 2: template in group 9 match on  ipv4 src mask 192.168.1.2, count packets
+#rule 3: non template in group 10, count packets 
+pmd1: &pmd1
+  command: |
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 1 template eth / ipv4 src mask 192.168.1.1 / end
+    flow actions_template 0 create ingress actions_template_id 1 template jump  / end mask jump  / end
+    flow template_table 0 create group 0 priority 0 ingress table_id 1 rules_number 1 pattern_template 1 actions_template 1
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 src spec 192.168.1.1 / end actions jump group 10 / end
+    flow pull 0 queue 0
+    flow create 0 priority 1 ingress pattern eth / end actions jump group 9 / end
+    flow pattern_template 0 create ingress relaxed yes pattern_template_id 0 template eth / ipv4 src mask 192.168.1.2 / end
+    flow actions_template 0 create ingress actions_template_id 0 template count  / end mask count  / end
+    flow template_table 0 create group 9 priority 0 ingress table_id 0 rules_number 1 pattern_template 0 actions_template 0
+    flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 src spec 192.168.1.2 / end actions count / end
+    flow pull 0 queue 0
+    flow create 0 ingress group 10 pattern eth / end actions count / end
+#  result: (Flow rule \#\d created){}
+#(err:.*)
+
+#configure 4 counters
+pmd2: &pmd2
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64 counters_number 4
+    port start 0
+  result: 'Configure flows on port 0'
+
+pmd3: &pmd3
+  command: |
+    flow query 0 2 count
+  result: {'and': ['COUNT', 'hits: 1']}
+
+pmd4: &pmd4
+  command: |
+    flow query 0 3 count
+  result: {'and': ['COUNT', 'hits: 1']}
+
+phase0: &phase0
+  name: CONFIGURATION
+  scapy@b1: |
+    pkt_ok2=Ether(src='22:00:00:00:00:22', dst='bb:00:00:00:00:bb')/IP(src="192.168.1.2", dst="10.0.0.1",ttl=64, tos=0x10, proto=17, id=12345, frag=0, len=None)/UDP(sport=1234, dport=5678)/Raw(b"X" * 100)
+    pkt_ok3=Ether(src='55:00:00:00:00:55', dst='bb:00:00:00:00:bb')/IP(src="192.168.1.1", dst="10.0.0.1",ttl=64, tos=0x10, proto=17, id=12345, frag=0, len=None)/UDP(sport=1, dport=1001)/Raw('==test==')
+  pmd@a1: [ *pmd2, *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: send and hit
+  scapy@b1: |
+    sendp(pkt_ok2, iface=pf0, count=1, verbose=1)
+    sendp(pkt_ok3, iface=pf0, count=1, verbose=1)
+  pmd@a1: [ *pmd3, *pmd4]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1
