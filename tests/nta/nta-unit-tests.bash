@@ -38,6 +38,7 @@ tests/nta/count_age/test-hws2-nic-count_no_cfg-3-dv2.yaml
 tests/nta/count_age/test-hws2-nic-count_cfg-3-dv2.yaml
 tests/nta/count_age/test-hws2-nic-age_no_cfg-3-dv2.yaml
 tests/nta/rss/nta-rss-ip6.yaml
+tests/nta/hybrid/test-hws2-nic-count_cfg-3-dv2.yaml
 '
 opt_silent='no'
 opt_verbose='no'
