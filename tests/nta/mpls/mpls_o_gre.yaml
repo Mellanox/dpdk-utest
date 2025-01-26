@@ -1,0 +1,46 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: ["shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+  agent: scapy
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    flow create 0 ingress group 0 pattern eth / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / ipv4 / gre protocol is 0x8847 / mpls label is 100 / mpls label is 200 / ipv4 / end actions queue index 3 / end
+
+result: '(Flow rule #\d created){2}'
+
+phase0: &phase0
+  name: CONFIGURATION
+  scapy@b1: |
+    load_contrib("mpls")
+    p_ok=Ether()/IP(src="192.168.1.1", dst="192.168.2.1")/GRE(proto=0x8847)/MPLS(label=100, ttl=64)/MPLS(label=200, ttl=64, s=1)/IP(src="10.0.0.1", dst="10.0.0.2")/TCP(sport=1234, dport=80)
+    p_nok=Ether()/IP(src="192.168.1.1", dst="192.168.2.1")/UDP(sport=6635, dport=6635)/MPLS(label=100, ttl=64)/IP(src="10.0.0.1", dst="10.0.0.2")/TCP(sport=1234, dport=80)
+  pmd@a1: [ *pmd0, *pmd1 ]
+
+phase101: &phase101
+  name: SENT and CHECK queue 1
+  scapy@b1:  |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+    sendp(p_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 3: received 1 packets){1}'
+
+
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase101 ]
+    repeat: 1
