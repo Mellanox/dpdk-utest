@@ -12,6 +12,8 @@
 
 
 NIC_TESTS='
+tests/nta/mpls/mpls_o_gre.yaml
+tests/nta/mpls/mpls_o_udp.yaml
 tests/nta/indirect/indirect-ct_w_cfg.yaml
 tests/nta/indirect/indirect-ct.yaml
 tests/nta/queue/test-hws2-nic-queue-3-dv1.yaml
