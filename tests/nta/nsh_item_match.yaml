@@ -1,0 +1,40 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf\[0,1\],l3_vxlan_en=1 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: ["config-fdb --pci pci0 --vf 2",
+            "shell sysctl -w vm.nr_hugepages=4096"]
+
+config: &config
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+fg0: &fg0
+  command: 'flow create 0 transfer group 0 pattern eth / end actions jump group 1 / end'
+  result: 'Flow rule \#0 created'
+
+#pkt_ok=Ether()/IPv6()/UDP(dport=250)/VXLAN(flags=0x0C, vni=0)/NSH()/Ether()/Raw('==test==')
+fg1: &fg1
+  command: 'flow create 0 transfer group 1 pattern eth / ipv6 / udp dst is 250 / vxlan-gpe / nsh / eth / end actions port_id id 1 / end'
+  result: 'Flow rule \#1 created'
+
+#close ports
+fg2: &fg2
+  command: |
+    port stop 2
+    port stop 1
+    port stop 0
+    port close 2
+    port close 1
+    port close 0
+  result: ''
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1, *fg2 ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+

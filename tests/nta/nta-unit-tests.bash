@@ -12,6 +12,12 @@
 
 
 NIC_TESTS='
+tests/nta/nsh_item_match.yaml
+tests/nta/indirect_raw_encap_decap.yaml
+tests/nta/port_affinity_match.yaml
+tests/nta/rocev2_item_match.yaml
+tests/nta/vlan_pop_push.yaml
+tests/nta/encap_mh/test-hws2-nic-raw_encap_gre.yaml
 tests/nta/mpls/mpls_o_gre.yaml
 tests/nta/mpls/mpls_o_udp.yaml
 tests/nta/indirect/indirect-ct_w_cfg.yaml

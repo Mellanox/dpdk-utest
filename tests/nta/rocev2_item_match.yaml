@@ -1,0 +1,45 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024",
+             "shell //opt//mellanox//iproute2//sbin//devlink dev param set pci/pci0 name enable_roce value false cmode driverinit",
+             "shell //opt//mellanox//iproute2//sbin//devlink dev reload pci/pci0" ]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+fg0: &fg0
+  command: 'flow create 0 ingress pattern eth / end actions jump group 1 / end'
+  result: 'Flow rule \#0 created'
+
+fg1: &fg1
+  command: 'flow create 0 group 1 ingress pattern eth / ipv4 / udp / ib_bth opcode is 0x80 dst_qp is 0xabd4 / end actions queue index 1 / end'
+  result: 'Flow rule \#1 created'
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0, *fg1 ]
+  scapy@b1: |
+    load_contrib("roce")
+    p_ok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IP(src='16.16.16.16', dst='1.1.1.2')/UDP(sport=49152, dport=4791)/BTH(opcode=0x80,dqpn=0xabd4)/Raw('==test==')
+    p_nok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IP(src='16.16.16.16', dst='1.1.1.2')/UDP(sport=49152, dport=4791)/BTH(opcode=0x81,dqpn=0xabd5)/Raw('==test==')
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1: |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+    sendp(p_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 1: received 1 packets){1}'
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
+

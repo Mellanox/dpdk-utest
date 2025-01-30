@@ -1,0 +1,36 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf\[0,1\] -- -i --rxq=4 --txq=4'
+  setup: [ "config-fdb --pci pci0 --vf 2",
+           "shell sysctl -w vm.nr_hugepages=1024"]
+
+pmd0: &pmd0
+  command: |
+    start
+    set verbose 1
+  result: Change verbose level from \d{1,} to 1
+
+pmd1: &pmd1
+  command: |
+    set raw_decap 0 eth / ipv4 / gre / gre_option / end_set
+    set raw_encap 0 eth src is 10:22:33:44:55:60 dst is a0:bb:cc:dd:ee:f2 type is 0x0800 / end_set
+    flow create 0 ingress pattern eth / end actions jump group 1 / end
+    flow create 0 transfer group 1 pattern eth / ipv4 / gre c_bit is 1 / gre_option checksum is 300 / ipv4 src is 1.1.1.1 / end actions raw_decap index 0 / raw_encap index 0 / port_id id 1 / end
+  result: (Flow rule \#\d created){2}
+
+#close ports
+pmd2: &pmd2
+  command: |
+    port close 2
+    port close 1
+    port close 0
+  result: ''
+
+phase0: &phase0
+  pmd@a1: [ *pmd0, *pmd1, *pmd2 ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+

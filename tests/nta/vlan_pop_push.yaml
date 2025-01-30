@@ -1,0 +1,45 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf\[0,1\] -a pci1,dv_flow_en=2,representor=vf\[0,1\] -- -i --rxq=4 --txq=4'
+    setup: ["config-fdb --pci pci0 --vf 2",
+            "config-fdb --pci pci1 --vf 2",
+            "shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#Egress traffic from port 1 to the wire:
+fg0: &fg0
+  command: 'flow create 1 transfer pattern eth / vlan / ipv4 / udp / end actions of_pop_vlan / port_id id 0 / end'
+  result: 'Flow rule \#0 created'
+
+#Ingress traffic from wire to port 1:
+fg1: &fg1
+  command: 'flow create 0 transfer pattern eth / ipv4 / udp / vxlan / end actions of_push_vlan ethertype 0x8100 / of_set_vlan_vid vlan_vid 3 / port_id id 1 / end'
+  result: 'Flow rule \#0 created'
+
+#close ports
+fg2: &fg2
+  command: |
+    port close 5
+    port close 4
+    port close 3
+    port close 2
+    port close 1
+    port close 0
+  result: ''
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1 ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+
