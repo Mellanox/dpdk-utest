@@ -1,0 +1,43 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+    setup: ["shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+  agent: scapy
+
+#Configure the TxQ index 0,1 with tx affinity 1, TxQ index 2,3 with tx affinity 2:
+config: &config
+  command: |
+    port stop all
+    port config 0 txq 0 affinity 1
+    port config 0 txq 1 affinity 1
+    port config 0 txq 2 affinity 2
+    port config 0 txq 3 affinity 2
+    port start all
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#Create an RX rule that matches the port affinity values, and redirect the packets to different RX Queue with marked value:
+fg0: &fg0
+  command: 'flow create 0 ingress pattern eth / aggr_affinity affinity is 1 / end actions mark id 0x1234 / queue index 0 / end'
+  result: 'Flow rule \#0 created'
+
+#Ingress traffic from wire to port 1:
+fg1: &fg1
+  command: 'flow create 0 ingress pattern eth / aggr_affinity affinity is 2 / end actions mark id 0xabcd / queue index 2 / end'
+  result: 'Flow rule \#1 created'
+
+#Send the packet from the different hardware ports of the remote side.
+#The packet was received from the first hardware port, the DPDK SW received at the RX queue
+#0 with 0x1234 Marked value, and the packets of RX queue 1 with 0xabcd marked value
+#showed the second hardware port received.
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1 ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+

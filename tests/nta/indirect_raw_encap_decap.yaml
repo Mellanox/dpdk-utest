@@ -1,0 +1,53 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf\[0,1\] -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "config-fdb --pci pci0 --vf 2",
+             "shell sysctl -w vm.nr_hugepages=1024" ]
+
+config: &config
+  command: |
+    port stop 2
+    port stop 1
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64 counters_number 4
+    set raw_decap 0 eth src is 10:22:33:44:55:60 dst is a0:bb:cc:dd:ee:f2 / ipv4 src is 1.1.1.1 dst is 2.2.2.2 ttl is 10 / gre protocol is 0x800 / end_set
+    set raw_decap 2 eth src is 10:22:33:44:55:60 dst is a0:bb:cc:dd:ee:f2 / ipv6 src is 1::1 dst is 2::2 / gre protocol is 0x86dd / end_set
+    set raw_encap 0 eth src is 10:22:33:44:55:60 dst is a0:bb:cc:dd:ee:f2 type is 0x800 / end_set
+    set raw_encap 2 eth src is 10:00:00:00:00:10 dst is 20:00:00:00:00:20 type is 0x86dd / end_set
+    flow indirect_action 0 create action_id 10 transfer list actions raw_decap index 0 / raw_encap index 0 / end
+    flow indirect_action 0 create action_id 11 transfer list actions raw_decap index 2 / raw_encap index 2 / end
+    port start 0
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+# Create a pattern template
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create transfer relaxed no pattern_template_id 1 template represented_port ethdev_port_id is 0 / eth / end
+  result: 'Pattern template #1 created'
+
+# Create a action template
+#If ID is provided in the action template mask, it means all rules share the same indirect reformat
+#actions, otherwise, each rule can specify its unique action. The indirect action in flow rules must be
+#the same type as the one in action template like L2_ENCAP/DECAP, L3_ENCAP/DECAP .
+fg1: &fg1
+  command: |
+    flow actions_template 0 create transfer actions_template_id 1 template indirect_list handle 10 / represented_port ethdev_port_id 1 / end mask indirect_list / represented_port ethdev_port_id 0 / end
+  result: 'Actions template #1 created'
+
+#close ports
+fg2: &fg2
+  command: |
+    port close 2
+    port close 1
+    port close 0
+  result: ''
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1, *fg2 ]
+
+flow:
+  -
+    phases: [ *phase0]
+    repeat: 1
+
