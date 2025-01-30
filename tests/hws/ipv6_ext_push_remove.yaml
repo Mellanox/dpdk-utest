@@ -1,0 +1,54 @@
+#mlxcfg special settings: FLEX_PARSER_PROFILE_ENABLE=4 PROG_PARSE_GRAPH=1
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf\[0,1\] -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [  "config-fdb --pci pci0 --vf 2",
+              "shell sysctl -w vm.nr_hugepages=1024" ]
+
+config: &config
+  command: |
+    port stop 2
+    port stop 1
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64 counters_number 4
+    port start 0
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#remove action
+fg0: &fg0
+  command: |
+    set ipv6_ext_remove 1 ipv6_ext type is 43 / end_set
+    flow pattern_template 0 create transfer relaxed no pattern_template_id 1 template represented_port ethdev_port_id is 0 / eth / ipv6 / ipv6_routing_ext / udp src is 100 / end
+    flow actions_template 0 create transfer actions_template_id 1 template ipv6_ext_remove index 1 / represented_port ethdev_port_id 1 / end mask ipv6_ext_remove index 1 / represented_port ethdev_port_id 1 / end
+    flow template_table 0 create group 0 priority 0 transfer table_id 1 rules_number 128 pattern_template 1 actions_template 1
+  result: 'Template table #1 created'
+
+#push action
+fg1: &fg1
+  command: |
+    set ipv6_ext_push 1 ipv6_ext type is 43 / ipv6_routing_ext ext_type is 4 ext_next_hdr is 17 ext_seg_left is 2 / end_set
+    flow pattern_template 0 create transfer relaxed no pattern_template_id 2 template represented_port ethdev_port_id is 0 / eth / ipv6 / udp src is 1 / end
+    flow actions_template 0 create transfer actions_template_id 2 template ipv6_ext_push index 1 / represented_port ethdev_port_id 1 / end mask ipv6_ext_push index 1 / represented_port ethdev_port_id 1 / end
+    flow template_table 0 create group 0 priority 0 transfer table_id 2 rules_number 128 pattern_template 2 actions_template 2
+  result: 'Template table #2 created'
+
+#close ports
+fg2: &fg2
+  command: |
+    port stop 2
+    port stop 1
+    port stop 0
+    port close 2
+    port close 1
+    port close 0
+  result: ''
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1, *fg2 ]
+
+flow:
+  -
+    phases: [ *phase0]
+    repeat: 1
+

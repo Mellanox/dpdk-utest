@@ -1,0 +1,48 @@
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=4096" ]
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64
+    port start 0
+  result: '(^Port 0:){1}'
+
+#Select 64 most significant bits of IPv6 src and as a base for RSS hash calculation in a template
+fg0: &fg0
+  command: flow pattern_template 0 create pattern_template_id 1 ingress template ipv6 src mask ffff:ffff:ffff:ffff:0000:0000:0000:0000 / end
+  result: 'Pattern template #1 created'
+
+#Distribute packets among all queues based on these fields
+fg1: &fg1
+  command: flow actions_template 0 create ingress actions_template_id 1 template queue / end mask queue / end
+  result: 'Actions template #1 created'
+
+#Define a table with 4 entries and use insertion by index
+fg2: &fg2
+  command: flow template_table 0 create table_id 1 group 10 priority 0 ingress rules_number 4 insertion_type index hash_func default pattern_template 1 actions_template 1
+  result: 'Template table #1 created'
+
+#Insert 4 flow rules to populate the whole table
+fg3: &fg3
+  command: |
+    flow queue 0 create 0 template_table 1 rule_index 0 actions_template 0 postpone no pattern end actions queue index 0 / end
+    flow queue 0 create 0 template_table 1 rule_index 1 actions_template 0 postpone no pattern end actions queue index 1 / end
+    flow queue 0 create 0 template_table 1 rule_index 2 actions_template 0 postpone no pattern end actions queue index 2 / end
+    flow queue 0 create 0 template_table 1 rule_index 3 actions_template 0 postpone no pattern end actions queue index 3 / end
+    flow pull 0 queue 0
+    flow pull 0 queue 0
+    flow pull 0 queue 0
+    flow pull 0 queue 0
+  result: '(0 failed, 1 succeeded){4,}'
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0, *fg1, *fg2, *fg3 ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1

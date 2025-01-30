@@ -7,6 +7,10 @@ scapy@b1:
   agent: scapy
   cmd: [ 'shell ip link set up dev pf0']
 
+# HWS Port Configuration:
+# flow configure <port> queues_number <qnum> queues_size <qsize> \ quotas_number <quota number[*]>
+# Create indirect quota flow action:
+# flow indirect_action <port> create ingress action_id <quota id> \ action quota_create limit <tokens> mode [l2|l3|packet] / end
 config: &config
   command: |
     port stop 0
@@ -18,13 +22,35 @@ config: &config
     flow pull 0 queue 3
   result: '(^Port 0:){1}'
 
+# Modify-only quota tokens number:
+# flow indirect_action <port> update <quota id> action quota_update limit <tokens> update_op [set|add] / end
+modify: &modify
+  command: |
+    flow indirect_action 0 update 8 action quota_update limit 1600 update_op set / end
+  result: 'Indirect action #8 updated'
+
+# Query-only quota tokens number:
+# flow indirect_action <port> query <quota id>
+query: &query
+  command: |
+    flow indirect_action 0 query 8
+  result: 'unused quota:'
+
+# Query-and-Modify quota-tokens number:
+# flow indirect_action <port> query_update <quota id> mode query_first action quota_update limit <tokens> update_op [set|add] / end
+query_and_modify: &query_and_modify
+  command: |
+    flow indirect_action 0 query_update 8 mode query_first action quota_update limit 200 update_op add / end
+    flow indirect_action 0 query 8
+  result: 'unused quota:'
+
 #2 rules:
 #1: jump group 0 to group 1
 #2: quota action and jump to group 2
 pattern0: &pattern0
   command: |
       flow pattern_template 0 create ingress pattern_template_id 2 template eth / end
-      result: 'Pattern template #2 created'
+  result: 'Pattern template #2 created'
 
 action0: &action0
   command: |           
@@ -71,7 +97,7 @@ fq1: &fq1
 
 phase0: &phase0
   name: config
-  pmd@a1: [ *config, *pattern0, *action0, *table0, *fq0, *pattern1, *action1, *table1, *fq1 ]
+  pmd@a1: [ *config, *modify, *query, *query_and_modify, *pattern0, *action0, *table0, *fq0, *pattern1, *action1, *table1, *fq1 ]
   scapy@b1: |
     p_ok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IP(src='16.16.16.16', dst='1.1.1.2')/UDP(sport=1, dport=1001)/Raw('==test==')
     p_nok=Ether(src='aa:00:00:00:00:aa', dst='bb:00:00:00:00:bb')/IP(src='1.1.1.1', dst='1.1.1.2')/UDP(sport=10, dport=1001)/Raw('==test==')

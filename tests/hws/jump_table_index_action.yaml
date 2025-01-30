@@ -1,0 +1,48 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+config: &config
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 128 counters_number 8192
+    port start all
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#Create jump to matcher table
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create pattern_template_id 2 ingress template eth / end
+    flow actions_template 0 create ingress actions_template_id 2 template queue / end mask queue / end
+    flow template_table 0 create table_id 2 group 13 priority 0 insertion_type index_with_pattern ingress rules_number 64 pattern_template 2 actions_template 2
+    flow queue 0 create 0 template_table 2 rule_index 5 pattern_template 0 actions_template 0 postpone no pattern eth / end actions queue index 1 / end
+    flow pull 0 queue 0
+  result: '1 succeeded'
+
+#Jump to table index
+fg1: &fg1
+  command: |
+    flow pattern_template 0 create pattern_template_id 1 ingress template eth / end
+    flow actions_template 0 create ingress actions_template_id 1 template jump_to_table_index / end mask jump_to_table_index / end
+    flow template_table 0 create table_id 1 group 10 priority 0 ingress rules_number 64 pattern_template 1 actions_template 1
+  result: 'Template table #1 created'
+
+#Note that testpmd won’t be supported since the action is private
+#Create the rule with given table index
+fg2: &fg2
+  command: |
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions jump_to_table_index table 0x166fc9780 index 5 / end
+    flow pull 0 queue 0
+  result: 'Template table #1 created'
+
+#skip fg2 cause it will fail
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1 ]
+
+flow:
+  -
+    phases: [ *phase0]
+    repeat: 1
+
