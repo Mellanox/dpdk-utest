@@ -1,0 +1,46 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64 counters_number 4
+    port start 0
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+# Create a template table with two templates.
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create pattern_template_id 1 ingress template eth / end
+    flow actions_template 0 create ingress actions_template_id 1 template queue / end mask queue / end
+    flow actions_template 0 create ingress actions_template_id 2 template count / queue / end mask count / queue / end
+    flow template_table 0 create table_id 1 group 1 priority 0 ingress rules_number 64 pattern_template 1 actions_template 1 actions_template 2
+  result: 'Template table #1 created'
+
+# Create a flow with the counter to test the path.
+fg1: &fg1
+  command: |
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 1 postpone no pattern eth / end actions count / queue index 1 / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '1 succeeded'
+
+# Remove counter by updating the rule once the path is tested.
+fg2: &fg2
+  command: |
+    flow queue 0 update 0 rule 0 actions_template 0 postpone no pattern end actions queue index 3 / end
+    flow push 0 queue 0
+    flow pull 0 queue 0
+  result: '1 succeeded'
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1, *fg2 ]
+
+flow:
+  -
+    phases: [ *phase0]
+    repeat: 1
+

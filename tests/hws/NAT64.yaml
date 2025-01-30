@@ -1,0 +1,35 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+config: &config
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 128 counters_number 8192
+    port start all
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#To create the pattern template with IPv4 length range matching specified
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create egress relaxed no pattern_template_id 0 template eth / end
+    flow actions_template 0 create egress actions_template_id 0 template jump / end mask jump / end
+    flow template_table 0 create group 0 priority 0 egress table_id 0 rules_number 4 pattern_template 0 actions_template 0
+    flow queue 0 create 3 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / end actions jump group 1 / end
+    flow pull 0 queue 3
+    flow actions_template 0 create egress actions_template_id 1 template count / nat64 / jump / end mask count / nat64 / jump / end
+    flow template_table 0 create group 1 priority 0 egress table_id 1 rules_number 8 pattern_template 0 actions_template 1
+    flow queue 0 create 2 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / end actions count / nat64 type 1 / jump group 2 / end
+    flow pull 0 queue 2
+  result: '1 succeeded'
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0 ]
+
+flow:
+  -
+    phases: [ *phase0]
+    repeat: 1
+

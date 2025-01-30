@@ -1,0 +1,44 @@
+#mlxcfg: FLEX_PARSER_PROFILE_ENABLE=8 should be set.
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64 counters_number 4
+    port start 0
+    set verbose 1
+  result: ''
+
+#Create a GENEVE option parser for port 0.
+fg0: &fg0
+  command: |
+    mlx5 set tlv_option class 1 type 1 len 1 offset 0 sample_len 1 class_mode fixed data 0xffffffff
+    mlx5 port 0 apply tlv_options
+  result: 'GENEVE TLV options parser is successfully created'
+
+#Create a template table with GENEVE option header.
+fg1: &fg1
+  command: |
+    flow pattern_template 0 create ingress pattern_template_id 1 template eth / ipv4 / udp / geneve / geneve-opt class spec 1 class mask 0xffff type spec 1 type mask 0xff length spec 1 data mask 0xffffffff / end
+    flow actions_template 0 create ingress actions_template_id 1 template queue / end mask queue / end
+    flow template_table 0 create table_id 1 group 1 priority 1 ingress rules_number 64 pattern_template 1 actions_template 1
+  result: 'Template table #1 created'
+
+#Create a flow match packets with specific GENEVE option data.
+fg2: &fg2
+  command: |
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / geneve / geneve-opt class spec 1 type spec 1 length spec 1 data spec 0xdeadbeef / end actions queue index 0 / end
+    flow pull 0 queue 0
+  result: '1 succeeded'
+
+phase0: &phase0
+  pmd@a1: [ *config, *fg0, *fg1, *fg2 ]
+
+flow:
+  -
+    phases: [ *phase0]
+    repeat: 1
+
