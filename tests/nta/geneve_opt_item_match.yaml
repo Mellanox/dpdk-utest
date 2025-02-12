@@ -1,0 +1,55 @@
+# Notice FLEX PARSER should be configured to 0(defualt)/8
+# need to upgrade scapy to support geneve options
+# sudo /usr/bin/python3 -m pip install --upgrade pip
+# sudo pip3 install --upgrade scapy
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#matching on geneve options on group 1:
+#flow create 0 ingress group 0 pattern eth / end actions jump group 1 / end
+#flow create 0 ingress group 1 pattern eth / ipv4 / udp / geneve / geneve-opt class is 27431 type is 107 length is 1 data is 0x6B27F9D6 / end actions count / end
+
+#matching on geneve options on group 0:
+fg0: &fg0
+  command: |
+    flow create 0 ingress group 0 pattern eth / ipv4 / udp / geneve / geneve-opt class is 27431 type is 107 length is 1 data is 0x6B27F9D6 / end actions jump group 1 / end
+    flow create 0 ingress group 1 pattern eth / end actions count / end
+  result: 'Flow rule \#0 created'
+
+fg1: &fg1
+  command: |
+    flow query 0 1 count
+  result: {'and': ['COUNT', 'hits: 1']}
+
+phase0: &phase0
+  name: create packet
+  pmd@a1: [ *config, *fg0 ]
+  scapy@b1: |
+    load_contrib("geneve")
+    from scapy.contrib.geneve import GENEVE, GeneveOptions
+    p_ok=Ether()/IP()/UDP()/GENEVE(vni=0, optionlen=2)/GeneveOptions(classid=27431, type=107, length=1, data=b'\x6B\x27\xF9\xD6')
+    p_nok=Ether()/IP()/UDP()/GENEVE(vni=0, optionlen=2)/GeneveOptions(classid=27431, type=107, length=1, data=b'\x6B\x6B\xF9\xD6')
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1: |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+    sendp(p_nok, iface=pf0, count=1, verbose=1)
+    time.sleep(1)
+  pmd@a1: [ *fg1 ]
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
