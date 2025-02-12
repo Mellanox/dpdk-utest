@@ -1,4 +1,6 @@
-# Notice FLEX PARSER should be configured to 0(defualt)/8
+# Notice FLEX PARSER should be configured to 0(defualt) in order to match geneve opt on group 0.(as implemented in current test)
+# FLEX PARSER should be configured to 0(defualt)/8 in order to match geneve opt on group>0.(as mentioned below in comment)
+# Matching on geneve fields is supported for group>0.
 # need to upgrade scapy to support geneve options
 # sudo /usr/bin/python3 -m pip install --upgrade pip
 # sudo pip3 install --upgrade scapy
