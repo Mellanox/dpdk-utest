@@ -1,0 +1,40 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+fg0: &fg0
+  command: 'flow create 0 priority 1 ingress pattern eth / end actions jump group 1 / end'
+  result: 'Flow rule \#0 created'
+
+fg1: &fg1
+  command: 'flow create 0 priority 1 group 1 ingress pattern eth /  ipv4 / udp / end actions of_push_vlan ethertype 0x88a8  / of_set_vlan_vid vlan_vid 100 / of_set_vlan_pcp vlan_pcp 1 / rss / end'
+  result: 'Flow rule \#1 created'
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0, *fg1 ]
+  scapy@b1: |
+    p_ok=Ether()/IP()/UDP(dport=255)/Raw(load="test")
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1: |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(type=0x88a8){1}'
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
+
