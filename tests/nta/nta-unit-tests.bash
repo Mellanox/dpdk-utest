@@ -12,6 +12,7 @@
 
 
 NIC_TESTS='
+tests/nta/ipv6_ext_match.yaml
 tests/nta/vlan_push_set.yaml
 tests/nta/geneve_opt_item_match.yaml
 tests/nta/nsh_item_match.yaml
