@@ -1,0 +1,50 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- --mbcache=512 -i  --nb-cores=5  --rxq=6 --txq=6 --txd=1024 --rxd=1024  --burst=64'
+    setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    start
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+# test group 0:
+# flow create 0 ingress pattern eth / ipv6 / ipv6_frag_ext next_hdr is 0x3a / end actions queue index 1 / end
+
+#test group 1:
+fg0: &fg0
+  command: 'flow create 0 ingress pattern eth / end actions jump group 1 / end'
+  result: 'Flow rule \#0 created'
+
+fg1: &fg1
+  command: 'flow create 0 group 1 priority 0 ingress pattern eth / ipv6 / ipv6_frag_ext / end actions queue index 1 / end'
+  result: 'Flow rule \#1 created'
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0, *fg1 ]
+  scapy@b1: |
+    pkt = (
+      Ether(src='00:00:00:aa:aa:aa', dst='00:00:00:bb:bb:bb') /
+        IPv6(src='::1', dst='::2') /
+        UDP(sport=50000, dport=5) /
+        Raw(load=b'a' * 2000)
+    )
+    p_ok = fragment6(pkt, 1400)
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1: |
+    sendp(p_ok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 1: received 1 packets){2}'
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
+
