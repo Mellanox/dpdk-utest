@@ -1,0 +1,101 @@
+# Example: Match VXLAN-GBP Flags and Group Policy ID
+
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64 counters_number 100
+    flow configure 1 queues_number 4 queues_size 64 counters_number 100
+    port start all
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+# Group 0: jump to group 1
+pattern_template_jump: &pattern_template_jump
+  command: |
+    flow pattern_template 0 create transfer pattern_template_id 2 template eth / end
+  result: 'Pattern template #2 created'
+
+actions_template_jump: &actions_template_jump
+  command: |
+    flow actions_template 0 create transfer actions_template_id 2 template jump group 1 / end mask jump group 1 / end
+  result: 'Actions template #2 created'
+
+template_table_jump: &template_table_jump
+  command: |
+    flow template_table 0 create table_id 2 transfer group 0 priority 0 rules_number 4 pattern_template 2 actions_template 2
+  result: 'Template table #2 created'
+
+queue_and_rule_jump: &queue_and_rule_jump
+  command: |
+    flow queue 0 create 0 template_table 2 pattern_template 0 actions_template 0 postpone no pattern eth / end actions jump group 1 / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+# Group 1: match VXLAN-GBP flags and group_policy_id, count
+pattern_template_gbp: &pattern_template_gbp
+  command: |
+    flow pattern_template 0 create transfer pattern_template_id 3 template eth / ipv4 / udp / vxlan flag_g is 1 group_policy_id is 0x100 / end
+  result: 'Pattern template #3 created'
+
+actions_template_count: &actions_template_count
+  command: |
+    flow actions_template 0 create transfer actions_template_id 3 template count / end mask count / end
+  result: 'Actions template #3 created'
+
+template_table_gbp: &template_table_gbp
+  command: |
+    flow template_table 0 create table_id 3 transfer group 1 priority 0 rules_number 4 pattern_template 3 actions_template 3
+  result: 'Template table #3 created'
+
+queue_and_rule_gbp: &queue_and_rule_gbp
+  command: |
+    flow queue 0 create 0 template_table 3 pattern_template 0 actions_template 0 postpone no pattern eth / ipv4 / udp / vxlan flag_g is 1 group_policy_id is 0x100 / end actions count / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #1 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+phase0: &phase0
+  name: config
+  pmd@a1: [
+    *config,
+    *pattern_template_jump, *actions_template_jump, *template_table_jump, *queue_and_rule_jump,
+    *pattern_template_gbp, *actions_template_count, *template_table_gbp, *queue_and_rule_gbp
+  ]
+
+check_counter: &check_counter
+  command: |
+    flow query 0 1 count
+  result: {'and': ['COUNT', 'hits: 1']}
+
+phase1: &phase1
+  name: traffic and verify
+  scapy@b1: |
+    from scapy.all import Ether, IP, UDP, Raw, sendp
+    from scapy.contrib.vxlan import VXLAN
+    from scapy.fields import ShortField
+    # Define a custom VXLAN-GBP class
+    # Build a VXLAN-GBP packet with flags=0xff and group_policy_id=0x200
+    pkt = Ether(src='00:11:22:33:44:55', dst='66:77:88:99:aa:bb') / \
+          IP(src='192.0.2.1', dst='192.0.2.2') / \
+          UDP(sport=1234, dport=4789) / \
+          VXLAN(flags=0x80, vni=1, gpid=0x100) / Raw(b'VXLAN-GBP payload')
+    # pkt.show()
+    sendp(pkt, iface=pf0, count=1, verbose=1)
+    time.sleep(1)
+  pmd@a1: [*check_counter]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase1 ]
+    repeat: 1
