@@ -1,0 +1,63 @@
+# Example: Match on RTE_PTYPE_L4_TCP using ptype and send to queue 1
+
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=1024" ]
+
+scapy@b1:
+  agent: scapy
+
+config: &config
+  command: |
+    port stop 0
+    flow configure 0 queues_number 4 queues_size 64
+    port start 0
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+pattern_template: &pattern_template
+  command: |
+    flow pattern_template 0 create pattern_template_id 1 ingress template ptype packet_type is 0x510 packet_type mask 0xff0 / end
+  result: 'Pattern template #1 created'
+
+actions_template: &actions_template
+  command: |
+    flow actions_template 0 create ingress actions_template_id 1 template queue / end mask queue / end
+  result: 'Actions template #1 created'
+
+template_table: &template_table
+  command: |
+    flow template_table 0 create table_id 1 group 0 priority 0 ingress rules_number 64 pattern_template 1 actions_template 1
+  result: 'Template table #1 created'
+
+queue_and_rule: &queue_and_rule
+  command: |
+    flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern ptype packet_type is 0x510 / end actions queue index 1 / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *pattern_template, *actions_template, *template_table, *queue_and_rule ]
+
+phase1: &phase1
+  name: traffic and verify
+  scapy@b1: |
+    from scapy.all import Ether, IP, TCP, sendp, AsyncSniffer
+    # Build a TCP packet (ptype should match RTE_PTYPE_L4_TCP)
+    pkt = Ether(src='00:11:22:33:44:55', dst='66:77:88:99:aa:bb') / \
+          IP(src='192.0.2.1', dst='192.0.2.2') / \
+          TCP(sport=1234, dport=80)
+    sendp(pkt, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 1: received 1 packets){1}'
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+  -
+    phases: [ *phase1 ]
+    repeat: 1
