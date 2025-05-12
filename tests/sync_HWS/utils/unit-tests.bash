@@ -54,6 +54,8 @@ tests/sync_HWS/actions/fate/queue.yaml
 tests/sync_HWS/actions/fate/queue_rss.yaml
 tests/sync_HWS/other/port_affinity_match.yaml
 tests/sync_HWS/other/hybrid/count.yaml
+tests/sync_HWS/other/cross_numa/testpmd_FDB.yaml
+tests/sync_HWS/other/cross_numa/testpmd_basic.yaml
 '
 opt_silent='no'
 opt_verbose='no'
