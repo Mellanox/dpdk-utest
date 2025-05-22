@@ -1,0 +1,30 @@
+#This test requires 2 NUMA nodes.
+#memory is needed on socket 0 for default rules creation.
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=1 -a pci1,dv_flow_en=1 -- -i --rxq=4 --txq=4 --no-numa --no-mlockall'
+    setup: ["shell sysctl -w vm.nr_hugepages=4096" ]
+
+scapy@b1:
+  agent: scapy
+
+#expecting failure starting the ports. since no memory on socket 0.
+config: &config
+  command: |
+    set verbose 1
+  result: 'Change verbose level from 0 to 1'
+
+#Create simple rule for sanity check:
+create_rule: &create_rule
+  command: 'flow create 0 ingress pattern eth / ipv4 / udp src is 101 / end actions queue index 1 / end'
+  result: 'Flow rule \#0 created'
+
+
+phase0: &phase0
+  pmd@a1: [ *config ]
+
+flow:
+  -
+    phases: [ *phase0 ]
+    repeat: 1
+

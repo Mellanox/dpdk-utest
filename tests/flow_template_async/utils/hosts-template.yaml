@@ -1,0 +1,7 @@
+pmd@a1:
+  host: (a) hostname
+  path: absolute path to testpmd on (a)
+scapy@a1:
+  host: (a) hostname
+scapy@b1:
+  host: (b) hostname
