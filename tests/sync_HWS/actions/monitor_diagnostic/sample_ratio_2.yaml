@@ -1,0 +1,68 @@
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2,representor=vf[0-1] -- -i'
+    setup: [ "config-fdb --pci pci0 --vf 2",
+                "shell sysctl -w vm.nr_hugepages=4096"]
+
+scapy@b1:
+    agent: scapy
+
+scapy@a1:
+    agent: scapy
+
+pmd_setup: &pmd_setup
+    command: |
+        set sample_actions 0 represented_port ethdev_port_id 1 / end
+        flow create 0 transfer group 0 pattern eth / ipv4 / udp / end actions jump group 1 / end
+        flow create 0 transfer group 1 pattern eth / ipv4 / udp / end actions sample ratio 2 index 0 / represented_port ethdev_port_id 2  / end
+    result: {'and':  ['Flow rule #0 created', 'Flow rule #1 created']}
+
+# Load test flow rules
+# Prepare sniffer on DUT host
+# Define TG test packet
+setup: &setup
+    name: 'SETUP'
+    pmd@a1: [ *pmd_setup ]
+    scapy@a1: |
+        sniff_0 = AsyncSniffer(iface=pf0vf0, filter='udp')
+        sniff_1 = AsyncSniffer(iface=pf0vf1, filter='udp')
+    scapy@b1: |
+        packet = Ether(dst='bb:00:00:00:00:bb', src='22:00:00:00:00:22')/IP()/UDP()/Raw('x' * 64)
+
+# Activate sniffer
+# Send test packets
+send: &send
+    name: 'SEND'
+    scapy@a1: |
+        sniff_0.start()
+        sniff_1.start()
+    scapy@b1: 'sendp(packet, iface=pf0, count=3141)'
+
+# Validate received packets
+post_send: &post_send
+    name: 'POST_SEND'
+    scapy@a1: |
+        cap_0 = sniff_0.stop()
+        cap_1 = sniff_1.stop()
+        if len(cap_0[UDP]) < 3141: 
+            print('VF0 OK: ', len(cap_0[UDP]))
+        
+        if len(cap_1[UDP]) == 3141: 
+            print('VF1 OK')
+    result:
+        scapy@a1: {'and': ['VF0 OK', 'VF1 OK']}
+
+flow:
+    -
+        phases: [ *setup ]
+        repeat: 1
+
+    -
+        phases: [ *send, *post_send ]
+        repeat: 3
+
+
+
+
+
+
