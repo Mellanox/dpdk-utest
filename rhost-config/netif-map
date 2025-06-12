@@ -1,0 +1,64 @@
+#! /bin/bash
+
+function usage () {
+    echo "usage: $0 <MT dev>"
+}
+
+pci_map='/tmp/pci-map'
+netdev_map='/tmp/netdev-map'
+if_map='/tmp/interfaces-map'
+
+mdev="$1"
+
+function pf_map () {
+    pci="$1"
+    NET_IF=$(ls /sys/bus/pci/devices/$pci/net)
+
+    for dev in $NET_IF; do
+        pf_info=$(devlink port | awk '/'"${dev}"' flavour physical port/ {print $0}')
+        if test "X${pf_info}" != 'X'; then
+            pf_num=$(echo $pf_info | awk '{print $(NF-2)}')
+            echo "      pci${pf_num}: $pci" >> $pci_map
+            echo "      pf${pf_num}: $dev" >> $netdev_map
+            vf_map $pci $pf_num
+        fi
+
+        pfr_info=$(devlink port | awk '/'"${dev}"' flavour pcivf controller/ {print $0}')
+        if test "X${pfr_info}" != 'X'; then
+            inf=( $(echo $pfr_info | awk '{print $(NF-6),$(NF-4)}') )
+            echo "      pf${inf[0]}rf${inf[1]}: $dev" >> $netdev_map
+        fi
+    done
+}
+
+function vf_map () {
+    pci="$1"
+    pf_num="$2"
+
+    vf_dir="$(echo /sys/bus/pci/devices/$pci/virtfn*)"
+    if test "X${vf_dir}" != 'X'; then
+        for vf in $vf_dir; do
+            vf_net_dev=$(ls $vf/net)
+            vf_pci=$(basename $(readlink $vf))
+            vf_num=$(echo $vf | tr "[[:alpha:]]" " " | awk '{print $NF}')
+            echo "      pci${pf_num}vf${vf_num}: $vf_pci" >> $pci_map
+            echo "      pf${pf_num}vf${vf_num}: $vf_net_dev" >> $netdev_map
+        done
+    fi
+
+
+}
+
+mst restart
+PCI=$(mst status -v | awk '/'"$mdev"'/ {print "0000:"$3}')
+for pci in $PCI; do
+    pf_map $pci
+done
+
+cat > $if_map <<EOF
+  $(host -4 $HOSTNAME | awk '{print $NF}'):
+    - pci:
+$(cat $pci_map)
+    - netdev:
+$(cat $netdev_map)
+EOF
