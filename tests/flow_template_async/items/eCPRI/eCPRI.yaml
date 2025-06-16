@@ -1,0 +1,63 @@
+#mlxcfg special settings: FLEX_PARSER_PROFILE_ENABLE=4 PROG_PARSE_GRAPH=1
+pmd@a1:
+  agent: testpmd
+  cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i --rxq=4 --txq=4'
+  setup: [ "shell sysctl -w vm.nr_hugepages=4096" ]
+
+scapy@b1:
+  agent: scapy
+  setup: [ 'shell ip link set up dev pf0']
+
+config: &config
+  command: |
+    port stop all
+    flow configure 0 queues_number 4 queues_size 64 counters_number 1024
+    port start all
+    start
+    set verbose 1
+  result: '(^Port 0:){1}'
+
+#rule 1: match on ecpri, jump to group 11
+#The mask of type will be set to 0xff by testpmd CLI parser
+fg0: &fg0
+  command: |
+    flow pattern_template 0 create ingress pattern_template_id 3 relaxed no template eth / end
+    flow actions_template 0 create ingress actions_template_id 15 template jump group 11 / end mask jump group 11 / end
+    flow template_table 0 create ingress table_id 0x33 pattern_template 3 actions_template 15 rules_number 4
+    flow queue 0 create 0 template_table 0x33 pattern_template 0 actions_template 0 postpone no pattern eth / end actions jump / end
+    flow pull 0 queue 0
+  result: {'and': ['Flow rule #0 creation enqueued', 'Queue #0 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+#rule 2: match on ecpri, mark, count, queue to queue 0
+fg1: &fg1
+  command: |
+    flow pattern_template 0 create ingress pattern_template_id 0 relaxed no template eth type mask 0xffff / ecpri common type iq_data pc_id mask 0xffff / end
+    flow actions_template 0 create ingress actions_template_id 26 template mark / count / queue / end mask mark / count / queue / end
+    flow template_table 0 create ingress table_id 0x55 group 11 rules_number 8 pattern_template 0 actions_template 26
+    flow queue 0 create 1 template_table 0x55 pattern_template 0 actions_template 0 postpone no pattern eth type is 0xAEFE / ecpri common type iq_data pc_id is 0x33 / end actions mark id 0x212 / count / queue index 0 / end
+    flow pull 0 queue 1
+  result: {'and': ['Flow rule #0 creation enqueued', 'Queue #1 pulled 1 operations \(0 failed, 1 succeeded\)']}
+
+ # Create eCPRI packet that matches the flow rules
+phase0: &phase0
+  name: config
+  pmd@a1: [ *config, *fg0, *fg1 ]
+  scapy@b1: |
+    from scapy.all import *
+    load_contrib("ecpri")
+    pkt_ok=Ether(src='22:00:00:00:00:22', dst='bb:00:00:00:00:bb', type=0xAEFE)/ECPRI(type=0, size=100, pcid=0x33)/Raw(b'X' * 100)
+    pkt_nok=Ether(src='55:00:00:00:00:55', dst='bb:00:00:00:00:bb', type=0xAEFE)/ECPRI(type=2, size=100, pcid=0x44)/Raw(b'X' * 100)
+
+phase1: &phase1
+  name: send and hit
+  scapy@b1: |
+    sendp(pkt_ok, iface=pf0, count=1, verbose=1)
+    sendp(pkt_nok, iface=pf0, count=1, verbose=1)
+  result:
+    pmd@a1: '(port 0/queue 0: received 1 packets){1}'
+
+flow:
+  -
+    phases: [ *phase0, *phase1 ]
+    repeat: 1
+
