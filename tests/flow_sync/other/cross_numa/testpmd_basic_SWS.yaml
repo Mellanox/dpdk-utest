@@ -2,7 +2,7 @@
 #memory is needed on socket 0 for default rules creation.
 pmd@a1:
     agent: testpmd
-    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=1 -a pci1,dv_flow_en=1 -- -i --rxq=4 --txq=4 --no-numa --no-mlockall'
+    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=1 -a pci1,dv_flow_en=1 -- -i --rxq=4 --txq=4 --no-numa --no-mlockall --socket-num=1'
     setup: ["shell sysctl -w vm.nr_hugepages=4096" ]
 
 scapy@b1:

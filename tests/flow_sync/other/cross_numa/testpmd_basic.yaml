@@ -1,7 +1,7 @@
 #This test requires 2 NUMA nodes.
 pmd@a1:
     agent: testpmd
-    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4 --no-numa'
+    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=2 -a pci1,dv_flow_en=2 -- -i --rxq=4 --txq=4 --no-numa --no-mlockall --socket-num=1'
     setup: ["shell sysctl -w vm.nr_hugepages=4096" ]
 
 scapy@b1:
