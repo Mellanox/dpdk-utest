@@ -1,7 +1,7 @@
 #This test requires 2 NUMA nodes.
 pmd@a1:
     agent: testpmd
-    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=2,representor=vf\[0,1\] -a pci1,dv_flow_en=2,representor=vf\[0,1\] -- -i --no-numa'
+    cmd: 'dpdk-testpmd --legacy-mem --socket-mem=0,2048 -a pci0,dv_flow_en=2,representor=vf\[0,1\] -a pci1,dv_flow_en=2,representor=vf\[0,1\] -- -i --no-numa --no-mlockall --socket-num=1'
     setup: [ "config-fdb --pci pci0 --vf 2",
              "config-fdb --pci pci1 --vf 2",
              "shell sysctl -w vm.nr_hugepages=4096" ]
