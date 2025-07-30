@@ -20,7 +20,9 @@ function pf_map () {
             pf_num=$(echo $pf_info | awk '{print $(NF-2)}')
             echo "      pci${pf_num}: $pci" >> $pci_map
             echo "      pf${pf_num}: $dev" >> $netdev_map
-            vf_map $pci $pf_num
+            if test -e "/sys/bus/pci/devices/${pci}/virtfn0"; then
+                vf_map $pci $pf_num
+            fi
         fi
 
         pfr_info=$(devlink port | awk '/'"${dev}"' flavour pcivf controller/ {print $0}')
