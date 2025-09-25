@@ -167,7 +167,7 @@ impl<'a> Core<'a> {
         }
     }
 
-    fn translate_interfaces(tmpl:&str, interfaces:&InterfaceMap) -> String {
+    fn translate_mapped_interfaces(tmpl:&str, interfaces:&InterfaceMap) -> String {
         let delim = r#"\b"#;
         let mut result = tmpl.to_string();
         interfaces.iter().for_each(|(map, device)| {
@@ -194,7 +194,7 @@ impl<'a> Core<'a> {
                 let mut list:AppConfig = Default::default();
                 setup.as_sequence().unwrap().iter().for_each(|v| {
                     let tmpl = v.as_str().unwrap();
-                    list[ix] = Core::translate_interfaces(tmpl, interfaces);
+                    list[ix] = Core::translate_mapped_interfaces(tmpl, interfaces);
                     ix += 1;
                 });
                 list.iter().filter(|item| (*item).len() > 0 ).for_each(|script| {
@@ -218,26 +218,15 @@ struct Testpmd<'a> {
     core: Core<'a>,
 }
 impl<'a> Testpmd<'a> {
-    fn new(tag:&'a AppTag, commands:&Mapping, config:&Mapping,
-           interfaces:&mut InterfaceDB, need_host_config:bool) -> Testpmd<'a> {
+    fn new(tag:&'a AppTag, commands:&Mapping, config:&Mapping, interfaces:&mut InterfaceDB) -> Testpmd<'a> {
         let hostname= &tag.rhost.hostname;
-        let mut map = interfaces.get(hostname).unwrap();
-        let mut pci_map= &map.0;
-        if need_host_config {
-            Core::configure_host(tag, commands, pci_map);
-            let pci = Core::translate_interfaces("pci0", pci_map);
-            let updated = map_host_interfaces(tag.rhost, &pci);
-            interfaces.remove(hostname);
-            interfaces.insert(hostname.to_string(), updated);
-            map = interfaces.get(hostname).unwrap();
-            pci_map= &map.0;
-        }
+        let map = interfaces.get(hostname).unwrap();
+        let pci_map= &map.0;
         let delay = time::Duration::from_millis(50);
         let tmpl = commands.get("cmd").unwrap().as_str().unwrap();
         let mut testpmd_cmd = config.get("path").unwrap().as_str().unwrap().to_string();
         testpmd_cmd.push_str("/");
-        testpmd_cmd.push_str(
-            &Core::translate_interfaces(tmpl, pci_map));
+        testpmd_cmd.push_str(&Core::translate_mapped_interfaces(tmpl, pci_map));
         let mut ch:Channel = rsh::rsh_connect(tag.rhost);
         log::info!(target: &log_target(&tag.app), "{testpmd_cmd}");
         rsh::rsh_command(&mut ch, &mut testpmd_cmd);
@@ -281,11 +270,7 @@ struct Scapy<'a> {
     core: Core<'a>,
 }
 impl<'a> Scapy<'a> {
-    fn new(tag:&'a AppTag, commands:&Mapping,
-           interfaces:&InterfaceMap, need_host_config:bool) -> Scapy<'a> {
-        if need_host_config {
-            Core::configure_host(tag, commands, interfaces);
-        }
+    fn new(tag:&'a AppTag) -> Scapy<'a> {
         let mut ch:Channel = rsh::rsh_connect(tag.rhost);
         rsh::rsh_command(&mut ch, &mut "python3 -i -u -");
         Self {
@@ -361,13 +346,13 @@ pub fn init_apps<'a>(tags:&'a Tags<'a>, interfaces:&mut InterfaceDB, inputs:&Inp
         let app_ops: Box<dyn Ops> = match tag.agent.as_str() {
             "testpmd" => {
                 let mut testpmd =
-                    Testpmd::new(&tag, app_cmd, app_config, interfaces, need_host_config);
+                    Testpmd::new(&tag, app_cmd, app_config, interfaces);
                 testpmd.init();
                 Box::new(testpmd)
             },
             "scapy" => {
                 let (_, netdev_map) = interfaces.get(hostname).unwrap();
-                let mut scapy = Scapy::new(&tag, app_cmd, netdev_map, need_host_config);
+                let mut scapy = Scapy::new(&tag);
                 scapy.init();
                 scapy.init_netdev(netdev_map);
                 Box::new(scapy)
@@ -403,6 +388,7 @@ pub type RHosts = Vec<RHost>;
 pub struct AppTag<'a> {
     pub app: String,
     pub agent: String,
+    pub mtdev: String,
     pub rhost:&'a  RHost,
 }
 
@@ -455,7 +441,7 @@ fn get_rhosts(app_tags:&Vec<String>, inputs:&Inputs) ->RHosts {
 ///
 /// Build list of application tags
 ///
-fn get_test_tags<'a>(app_tags:&Vec<String>, rhosts:&'a Vec<RHost>, inputs:&Inputs) -> Tags<'a> {
+fn get_test_tags<'a>(app_tags:&Vec<String>, rhosts:&'a Vec<RHost>, inputs:&Inputs, mlxdev:&'a MlxDev) -> Tags<'a> {
     let mut tags:Tags<'a> = Tags::new();
 
     app_tags.iter().for_each(|t| {
@@ -468,6 +454,7 @@ fn get_test_tags<'a>(app_tags:&Vec<String>, rhosts:&'a Vec<RHost>, inputs:&Input
                 .as_mapping().unwrap()
                 .get("agent").unwrap()
                 .as_str().unwrap().to_string(),
+            mtdev:mlxdev.0.to_string(),
             rhost:rhost,
         };
         log::trace!(target: &log_target(&tag.app), "agent={} hostname={}", tag.agent, tag.rhost.hostname);
@@ -530,76 +517,20 @@ fn reset_host(rhost:RHost, mtdev:String) -> std::io::Result<()>{
     Ok(())
 }
 
-const DEVLINK_PF_REGEX:&str = r#"(?m)^pci/(\S{12})/.*type eth netdev (\S{1,}) flavour physical port ([0-9]{1,})"#;
-const DEVLINK_VFREP_REGEX:&str = r#"(?m)^pci.*netdev (\S{1,}) flavour.*pfnum ([0-9]{1,}) vfnum ([0-9]{1,})"#;
-
-// /sys/bus/pci/devices/0000:05:00.0/virtfn0 -> ../0000:05:00.2
-const VF_PCI_REGEX:&str =
-    r#"(?m)/sys/bus/pci/devices/[[:xdigit:]]{4}:[[:xdigit:]]{2}:[[:xdigit:]]{2}.([[:xdigit:]]{1})/virtfn([[:digit:]]{1}).*/([[:xdigit:]]{4}:[[:xdigit:]]{2}:[[:xdigit:]]{2}.[[:xdigit:]]{1})"#;
-
-// pci/0000:05:00.2/131072: type eth netdev enp5s0f0v0 flavour virtual splittable false
-const VF_NETDEV_REGEX:&str = r#"(?m)^pci/([[:xdigit:]]{4}:[[:xdigit:]]{2}:[[:xdigit:]]{2}.[[:xdigit:]]{1})/.*netdev (\S{1,}) flavour virtual"#;
-
-fn map_host_interfaces(rhost:&RHost, pci:&str) -> (InterfaceMap, InterfaceMap) {
-    let pf_re = Regex::new(DEVLINK_PF_REGEX).unwrap();
-    let vfrep_re = Regex::new(DEVLINK_VFREP_REGEX).unwrap();
-    let vfpci_re = Regex::new(VF_PCI_REGEX).unwrap();
-    let vfnetdev_re = Regex::new(VF_NETDEV_REGEX).unwrap();
-    let mut pci_map:InterfaceMap = InterfaceMap::new();
-    let mut netdev_map:InterfaceMap = InterfaceMap::new();
-
-    log::info!(target: &log_target(&rhost.hostname), "map interfaces on PCI {}", pci);
-    let pci_partial = &pci[..7];
-    let (devlink_output, status) =
-        rsh_exec(rhost, &format!("devlink port | grep {pci_partial}\n"));
+fn map_rhost_intefaces(rhost:&RHost, mt_dev:&str) -> InterfaceDB {
+    let rcmd = format!("bash {REMOTE_SCRIPTS_PATH}/netif-map {}\n", mt_dev);
+    let (output, status) = rsh_exec(rhost, rcmd.as_str());
     if status != 0 {
-        panic!("{}: failed to fetch devlink info", rhost.hostname)
+        panic!("{}: failed to fetch interface map for {}", rhost.hostname, mt_dev)
     }
-    for (_, [pf_pci, pf_netdev, pf_port]) in
-    pf_re.captures_iter(&devlink_output).map(|caps| caps.extract()) {
-        let pf_name = format!("pci{pf_port}");
-        let netdev_name = format!("pf{pf_port}");
-        pci_map.insert(pf_name.clone(), pf_pci.to_string());
-        netdev_map.insert(netdev_name.clone(), pf_netdev.to_string());
-    }
-    for (_, [netdev, pfn, vfn]) in vfrep_re.captures_iter(&devlink_output).map(|caps| caps.extract()) {
-        let vfrep_map = format!("pf{pfn}rf{vfn}");
-        netdev_map.insert(vfrep_map, netdev.to_string());
-    }
+    let netif_map : String = output
+        .chars()
+        .filter(|&c| matches!(c, '\t' | '\n' | '\r') || matches!(c, ' '..='~'))
+        .collect();
 
-    match devlink_output.find("pcivf controller") {
-        Some(_) => {
-            let (vf_output, status) =
-                rsh_exec(rhost, &format!("ls -l /sys/bus/pci/devices/{pci_partial}*/virtfn*\n"));
-            if status != 0 { panic!("{}: failed to fetch SRIOV info", rhost.hostname) }
-
-            for (_, [pfx, vfx, vfpci1]) in vfpci_re.captures_iter(&vf_output).map(|caps| caps.extract()) {
-                let vf_map = format!("pci{pfx}vf{vfx}");
-                pci_map.insert(vf_map, vfpci1.to_string());
-
-                for (_, [vfpci2, vfnetdev]) in vfnetdev_re.captures_iter(&devlink_output).map(|caps| caps.extract()) {
-                    if vfpci1.ne(vfpci2) { continue }
-                    let vf_netdev_map = format!("pf{pfx}vf{vfx}");
-                    netdev_map.insert(vf_netdev_map, vfnetdev.to_string());
-                }
-            }
-        },
-        None => ()
-    }
-    (pci_map, netdev_map)
-}
-
-fn map_intefaces(rhosts:&RHosts, inputs:&Inputs) -> InterfaceDB {
-    let mut imap:InterfaceDB = HashMap::new();
-
-    rhosts.iter().for_each(|rhost|{
-        let mlx_dev = fetch_mtdev(rhost, inputs.mt_dev());
-        let pci= mlx_dev.1[0].as_str();
-        let interfaces = map_host_interfaces(rhost, pci);
-        imap.insert(rhost.hostname.clone(), interfaces);
-
-    });
-    imap
+    let yaml_map = serde_yaml::from_str::<Mapping>(netif_map.as_str())
+        .expect(&format!("failed to parse netif map from {}", rhost.hostname));
+    load_mapped_interfaces(&yaml_map)
 }
 
 /// <interface_map: {PCI address|netdev}>
@@ -626,27 +557,49 @@ fn store_hosts_interfaces(interfaces:&InterfaceDB, hosts_file:&Path) {
     f.write_all(&yaml.as_bytes()).unwrap();
 }
 
+/// Load host interface maps from a YAML Mapping into the internal InterfaceDB.
 ///
+/// Input format (YAML -> serde_yaml::Mapping):
+/// - Top-level keys are hostnames (strings).
+/// - Each hostname maps to a sequence containing two mappings:
+///   - {"pci": { "<alias>": "<PCI address>", ... }}
+///   - {"netdev": { "<alias>": "<netdev name>", ... }}
+///
+/// Input example:
+/// interfaces:
+///   "10.0.0.1":
+///     - pci:
+///         pf0: "0000:08:00.0"
+///         pf1: "0000:08:00.1"
+///     - netdev:
+///         pf0: "eth2"
+///         pf1: "eth3"
+///
+/// Translated mapping format:
 /// Mapping {
-// "10.237.169.201":
-//         Sequence [
-//             Mapping {
-//             "pci":
-//                 Mapping {
-//                     "pf0": String("0000:08:00.0"),
-//                     "pf1": String("0000:08:00.1"),
-//                 }
-//             },
-//             Mapping {
-//             "netdev":
-//                 Mapping {
-//                     "pf0": String("eth2"),
-//                     "pf1": String("eth3"),
-//                 }
-//             }
-//         ]
-// }
-fn load_interfaces(ival:&Mapping) -> InterfaceDB {
+/// "10.237.169.201":
+///         Sequence [
+///             Mapping {
+///            "pci":
+///                 Mapping {
+///                     "pf0": String("0000:08:00.0"),
+///                     "pf1": String("0000:08:00.1"),
+///                 }
+///             },
+///             Mapping {
+///             "netdev":
+///                 Mapping {
+///                     "pf0": String("eth2"),
+///                     "pf1": String("eth3"),
+///                 }
+///             }
+///         ]
+/// }
+/// Returns:
+/// - InterfaceDB = HashMap<String, (InterfaceMap, InterfaceMap)>,
+///   where InterfaceMap = HashMap<String, String>.
+///   For each host, the tuple is (pci_map, netdev_map).
+fn load_mapped_interfaces(ival:&Mapping) -> InterfaceDB {
     let mut imap:InterfaceDB = HashMap::new();
     for (hostname, seq_val) in ival {
         let mut pci:InterfaceMap = HashMap::new();
@@ -684,27 +637,54 @@ fn reset_test_hosts(rhosts:&RHosts, mt_dev:&String) {
     }
 }
 
-pub fn load_test_interfaces(rhosts:&RHosts, inputs:&Inputs) -> InterfaceDB {
+pub fn load_test_interfaces(rhosts:&RHosts, inputs:&Inputs, tags: &Tags) -> InterfaceDB {
     if inputs.try_reuse_config() {
-        load_interfaces(inputs.hosts.get("interfaces").unwrap().as_mapping().unwrap())
+        load_mapped_interfaces(inputs.hosts.get("interfaces").unwrap().as_mapping().unwrap())
     } else {
+        let mut imap: InterfaceDB = HashMap::new();
         if inputs.cmdline.reuse_conifiguration {
             log::info!(target: "conifg", "ignore fast execution: no \"interfaces\" tag.");
         }
         if inputs.hosts.contains_key("interfaces") {
             trim_hosts_file(Path::new(&inputs.cmdline.hosts_file))
         }
+        let mlx_dev = fetch_mtdev(&rhosts[0], inputs.mt_dev());
         if inputs.reset() {
-            let mlx_dev = fetch_mtdev(&rhosts[0], inputs.mt_dev());
             reset_test_hosts(rhosts, &mlx_dev.0);
         } else { log::debug!(target: "config", "skip host reset"); }
+        // Phase 1:
+        // - transfer configuration scripts to remote hosts;
+        // - fetch initial host interfaces map.
         log::debug!(target: "config", "copy config scripts");
         let local_path = Path::new(LOCAL_SCRIPTS_PATH);
         let remote_path = Path::new(REMOTE_SCRIPTS_PATH);
         for rhost in rhosts {
             rsh_send_dir(&rhost, local_path, remote_path);
+            let host_map = map_rhost_intefaces(&rhost, &mlx_dev.0);
+            imap.extend(host_map);
         }
-        map_intefaces(rhosts, inputs)
+
+        // Phase 2: configure remote hosts, if required
+        for tag in tags
+            .iter()
+            .filter(
+                |t| inputs
+                    .commands.get(&t.app).unwrap()
+                    .as_mapping().unwrap()
+                    .contains_key("setup")
+            ) {
+            let hostname = &tag.rhost.hostname;
+            let map = imap.get(hostname).unwrap();
+            log::info!(target: "config", "configure host: {} tag {}", hostname, tag.app);
+            let commands = inputs.commands.get(&tag.app).unwrap().as_mapping().unwrap();
+            Core::configure_host(tag, commands, &map.0);
+
+            // remote host configuration can add or remove network interfaces
+            // re-fetch the host interfaces map
+            let e = imap.remove(hostname).unwrap();
+            imap.insert(hostname.into(), e);
+        }
+        imap
     }
 }
 
@@ -800,12 +780,13 @@ fn main() {
     inputs.hosts = import_yaml(Path::new(&inputs.cmdline.hosts_file));
     let app_tags = get_app_tags(&inputs.commands);
     let rhosts = get_rhosts(&app_tags, &inputs);
-    let tags = get_test_tags(&app_tags, &rhosts, &inputs);
+    let mtdev = fetch_mtdev(&rhosts[0], inputs.mt_dev());
+    let tags = get_test_tags(&app_tags, &rhosts, &inputs, &mtdev);
     if inputs.cmdline.show_commands {
         utest::show_flow_commands(&inputs.commands, &tags);
         return
     }
-    let mut interfaces = load_test_interfaces(&rhosts, &inputs);
+    let mut interfaces = load_test_interfaces(&rhosts, &inputs, &tags);
     let mut ops_db = init_apps(&tags, &mut interfaces, &inputs);
     do_test(&inputs.commands, &mut ops_db);
     log::info!(target: "PASSED", "{}",inputs.cmdline.commands_file.split('/').last().unwrap());
