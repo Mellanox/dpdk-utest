@@ -4,9 +4,9 @@ function usage () {
     echo "usage: $0 <MT dev>"
 }
 
-pci_map='/tmp/pci-map'
-netdev_map='/tmp/netdev-map'
-if_map='/tmp/interfaces-map'
+pci_map=$(mktemp -p /tmp pci.XXX)
+netdev_map=$(mktemp -p /tmp netdev.XXX)
+if_map=$(mktemp -p /tmp devmap.XXX)
 
 mdev="$1"
 
@@ -18,8 +18,8 @@ function pf_map () {
         pf_info=$(devlink port | awk '/'"${dev}"' flavour physical port/ {print $0}')
         if test "X${pf_info}" != 'X'; then
             pf_num=$(echo $pf_info | awk '{print $(NF-2)}')
-            echo "      pci${pf_num}: $pci" >> $pci_map
-            echo "      pf${pf_num}: $dev" >> $netdev_map
+            echo "        pci${pf_num}: $pci" >> $pci_map
+            echo "        pf${pf_num}: $dev" >> $netdev_map
             if test -e "/sys/bus/pci/devices/${pci}/virtfn0"; then
                 vf_map $pci $pf_num
             fi
@@ -28,7 +28,7 @@ function pf_map () {
         pfr_info=$(devlink port | awk '/'"${dev}"' flavour pcivf controller/ {print $0}')
         if test "X${pfr_info}" != 'X'; then
             inf=( $(echo $pfr_info | awk '{print $(NF-6),$(NF-4)}') )
-            echo "      pf${inf[0]}rf${inf[1]}: $dev" >> $netdev_map
+            echo "        pf${inf[0]}rf${inf[1]}: $dev" >> $netdev_map
         fi
     done
 }
@@ -43,15 +43,16 @@ function vf_map () {
             vf_net_dev=$(ls $vf/net)
             vf_pci=$(basename $(readlink $vf))
             vf_num=$(echo $vf | tr "[[:alpha:]]" " " | awk '{print $NF}')
-            echo "      pci${pf_num}vf${vf_num}: $vf_pci" >> $pci_map
-            echo "      pf${pf_num}vf${vf_num}: $vf_net_dev" >> $netdev_map
+            echo "        pci${pf_num}vf${vf_num}: $vf_pci" >> $pci_map
+            echo "        pf${pf_num}vf${vf_num}: $vf_net_dev" >> $netdev_map
         done
     fi
 
 
 }
 
-mst restart
+mst restart >& /dev/null
+
 PCI=$(mst status -v | awk '/'"$mdev"'/ {print "0000:"$3}')
 for pci in $PCI; do
     pf_map $pci
@@ -64,3 +65,19 @@ $(cat $pci_map)
     - netdev:
 $(cat $netdev_map)
 EOF
+cat "$if_map"
+
+# Example:
+#  10.210.16.31:
+#    - pci:
+#        pci1: 0000:05:00.1
+#        pci0: 0000:05:00.0
+#        pci0vf0: 0000:05:00.2
+#        pci0vf1: 0000:05:00.3
+#    - netdev:
+#        pf1: enp5s0f1np1
+#        pf0: enp5s0f0np0
+#        pf0vf0: enp5s0f0v0
+#        pf0vf1: enp5s0f0v1
+#        pf0rf0: enp5s0f0npf0vf0
+#        pf0rf1: enp5s0f0npf0vf1
