@@ -1,0 +1,69 @@
+pmd@a1:
+    agent: testpmd
+    cmd_parts: &cmd_parts >
+        dpdk-testpmd
+        -a pci0,dv_flow_en=2,representor=vf[0,1] --file-prefix ESW
+        --
+        -i
+    cmd: *cmd_parts
+    setup: [
+        "config-fdb --pci pci0 --vf 2",
+        "shell sysctl -w vm.nr_hugepages=4096"
+    ]
+
+pmd@a2:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0vf0,dv_flow_en=2 --file-prefix VM -- -i'
+
+scapy@b1:
+    agent: scapy
+
+pmd0@a1: &pmd0_a1
+    pmd_cmd0@a1: &pmd_cmd0_a1 >
+        flow create 0 transfer group 0 pattern eth / ipv4 / udp / end
+        actions
+        modify_field op set dst_type meta src_type value src_value 0xabc width 32 /
+        represented_port ethdev_port_id 1 / end
+    command: *pmd_cmd0_a1
+    result: 'Flow rule #0 created'
+
+pmd0@a2: &pmd0_a2
+    command: |
+        port stop 0
+        port config 0 tx_metadata 0xffaaffaa
+        port start 0
+        start
+        set verbose 1
+    result: 'Change verbose level from \d{1,} to 1'
+
+pmd1@a2: &pmd1_a2
+    pmd_cmd1@a2: &pmd_cmd1_a2 >
+        flow create 0 ingress
+        pattern eth / ipv4 / udp / meta data is 0xabc / end
+        actions rss / end
+    command: *pmd_cmd1_a2
+    result: 'Flow rule #0 created'
+
+phase0: &phase0
+    name: CONFIGURATION
+    scapy@b1: |
+        packet = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IP()/UDP()/Raw('== TEST ==')
+    pmd@a1: [ *pmd0_a1 ]
+    pmd@a2: [ *pmd0_a2, *pmd1_a2 ]
+
+phase1: &phase1
+    name: SEND and CHECK
+    scapy@b1: sendp(packet, iface=pf0)
+    result:
+        pmd@a2: {and: [
+            'src=11:22:33:44:55:66 - dst=AA:BB:CC:DD:EE:AA',
+            'Rx metadata: 0xbc0a'
+        ]}
+
+flow:
+    -
+        phases: [ *phase0 ]
+        repeat: 1
+    -
+        phases: [ *phase1 ]
+        repeat: 1
