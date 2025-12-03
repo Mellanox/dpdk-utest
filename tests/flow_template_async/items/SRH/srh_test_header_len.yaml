@@ -1,0 +1,85 @@
+# mlxcfg: FLEX_PARSER_PROFILE_ENABLE=4 PROG_PARSE_GRAPH=True
+
+pmd@a1:
+    agent: testpmd
+    cmd: 'dpdk-testpmd -a pci0,dv_flow_en=2 -- -i'
+    setup: [ 'shell sysctl -w vm.nr_hugepages=1024' ]
+
+scapy@b1:
+    agent: scapy
+    cmd: [ 'shell ip link set up dev pf0']
+
+
+pmd0: &pmd0
+    command: |
+        port stop 0
+        flow configure 0 queues_number 4 queues_size 64
+        port start 0
+        start
+        set verbose 1
+    result: '(^Port 0:){1}'
+
+pmd1: &pmd1
+    command: |
+        flow pattern_template 0 create ingress pattern_template_id 0 template eth / ipv6  / end
+        flow actions_template 0 create ingress actions_template_id 0 template jump / end mask jump / end
+        flow template_table 0 create ingress table_id 0 group 0 priority 0 rules_number 1 pattern_template 0 actions_template 0
+        flow queue 0 create 0 template_table 0 pattern_template 0 actions_template 0 postpone no pattern eth / ipv6 / end actions jump group 1 / end
+        flow pull 0 queue 0
+
+pmd2: &pmd2
+    command: |
+        flow pattern_template 0 create ingress pattern_template_id 1 template eth / ipv6 / ipv6_routing_ext ext_next_hdr mask 0xff  / udp src mask 0xffff / end
+        flow actions_template 0 create ingress actions_template_id 1 template mark / rss / end mask mark / rss / end
+        flow template_table 0 create ingress table_id 1 group 1 priority 0 rules_number 1 pattern_template 1 actions_template 1
+        flow queue 0 create 0 template_table 1 pattern_template 0 actions_template 0 postpone no pattern eth / ipv6 / ipv6_routing_ext  ext_next_hdr spec 17 / udp src spec 0xaaaa / end actions mark id 0xaaa / rss / end
+        flow pull 0 queue 0
+
+scapy_config: &scapy_config |
+    def build_srh(seg_count):
+        base_net = "2001:db8::"
+        segments = [f"2001:db8::{i}" for i in range(1, seg_count + 1)]
+        return IPv6ExtHdrSegmentRouting(
+                type=4,              # SRH routing type
+                segleft=seg_count-1, # segments left (index of active segment)
+                lastentry=seg_count-1,
+                addresses=segments
+            )
+
+    eth6 = Ether(src='11:22:33:44:55:66', dst='aa:bb:cc:dd:ee:aa')/IPv6(dst="1111:2222::ffff")
+    udp_a = UDP(sport=0xaaaa, dport=100)/Raw('== TEST ==')
+    udp_b = UDP(sport=0xaaab, dport=100)/Raw('== TEST ==')
+    srh_2_a = eth6 / build_srh(2) / udp_a
+    srh_7_a = eth6 / build_srh(7) / udp_a
+
+phase0: &phase0
+    name: CONFIGURE
+    pmd@a1: [ *pmd0, *pmd1, *pmd2 ]
+    scapy@b1: *scapy_config
+
+phase1: &phase1
+    name: SEND SRH[2]
+    scapy@b1: sendp(srh_2_a, iface=pf0)
+    result:
+        pmd@a1: {'and': ['src=11:22:33:44:55:66 - dst=AA:BB:CC:DD:EE:AA', 'FDIR matched ID=0xaaa']}
+
+phase2: &phase2
+    name: SEND SRH[7]
+    scapy@b1: sendp(srh_7_a, iface=pf0)
+    result:
+        pmd@a1: {'and': ['src=11:22:33:44:55:66 - dst=AA:BB:CC:DD:EE:AA', 'FDIR matched ID=0xaaa']}
+
+
+flow:
+    -
+        phases: [ *phase0 ]
+        repeat: 1
+
+    -
+        phases: [ *phase1 ]
+        repeat: 1
+
+    -
+        phases: [ *phase2 ]
+        repeat: 1
+
